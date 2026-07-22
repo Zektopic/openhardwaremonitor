@@ -1,0 +1,297 @@
+//! HWiNFO-style "Sensors Status" window.
+//!
+//! Multi-column flow layout: `Sensor | Current` pairs packed into vertical
+//! columns that wrap left→right (groups may split across columns, matching
+//! HWiNFO), collapsible group bands, per-type colored icons, warning colors,
+//! CPU load in the window title and the uptime / reset / settings toolbar.
+
+use eframe::egui::{self, Align2, FontId, Pos2, RichText, Sense, Stroke, Vec2};
+
+use super::widgets::{self, ROW_H};
+use super::{Palette, Shared, WindowFlags};
+use crate::model::{Hardware, HardwareType, Sensor, SensorType};
+
+const COL_MIN_W: f32 = 250.0;
+
+enum Item {
+    Header { title: String, id: String, collapsed: bool },
+    Row(Sensor),
+}
+
+pub fn show(ui: &mut egui::Ui, s: &Shared) {
+    super::handle_close(ui, &s.windows.sensors);
+    let pal = s.palette();
+
+    let tree = s.monitor.lock().map(|m| m.snapshot()).unwrap_or_default();
+
+    // Own CPU load → window title, like HWiNFO's "(0.9%)".
+    let cpu_load = find_cpu_load(&tree);
+    let title = match cpu_load {
+        Some(l) => format!("SensorView Sensors Status ({l:.1}%)"),
+        None => "SensorView Sensors Status".to_string(),
+    };
+    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Title(title));
+
+    // ---- Bottom toolbar --------------------------------------------------
+    egui::Panel::bottom("sensors_toolbar")
+        .frame(
+            egui::Frame::new()
+                .fill(pal.bg_header)
+                .inner_margin(egui::Margin::symmetric(6, 3)),
+        )
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("⏱").size(12.0));
+                ui.label(RichText::new(s.uptime_text()).color(pal.text_dim).size(11.0));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .button(RichText::new("✕").color(pal.accent).size(12.0))
+                        .on_hover_text("Close")
+                        .clicked()
+                    {
+                        WindowFlags::close(&s.windows.sensors);
+                    }
+                    if ui
+                        .button(RichText::new("⚙").size(12.0))
+                        .on_hover_text("Settings")
+                        .clicked()
+                    {
+                        WindowFlags::open(&s.windows.settings);
+                    }
+                    if ui
+                        .button(RichText::new("Reset Min/Max").size(11.0))
+                        .clicked()
+                    {
+                        if let Ok(mut m) = s.monitor.lock() {
+                            m.reset_min_max();
+                        }
+                    }
+                });
+            });
+        });
+
+    // ---- Flow columns ----------------------------------------------------
+    egui::CentralPanel::default()
+        .frame(egui::Frame::new().fill(pal.bg))
+        .show(ui, |ui| {
+            let items = build_items(&tree, s);
+            flow_columns(ui, &items, s, &pal);
+        });
+}
+
+fn find_cpu_load(tree: &[Hardware]) -> Option<f32> {
+    for hw in tree {
+        if hw.hardware_type == HardwareType::Cpu {
+            for sensor in &hw.sensors {
+                if sensor.sensor_type == SensorType::Load
+                    && sensor.name.to_lowercase().contains("total")
+                {
+                    return sensor.value;
+                }
+            }
+        }
+    }
+    None
+}
+
+fn group_title(hw: &Hardware) -> String {
+    let prefix = match hw.hardware_type {
+        HardwareType::Cpu => "CPU: ",
+        HardwareType::GpuNvidia | HardwareType::GpuAti | HardwareType::GpuIntel => "GPU: ",
+        HardwareType::Ram => "",
+        HardwareType::Storage | HardwareType::Hdd => "Drive: ",
+        HardwareType::Network => "Network: ",
+        HardwareType::Battery => "Battery: ",
+        _ => "",
+    };
+    format!("{prefix}{}", hw.name)
+}
+
+fn build_items(tree: &[Hardware], s: &Shared) -> Vec<Item> {
+    let collapsed_set = s
+        .settings
+        .read()
+        .map(|st| st.collapsed_groups.clone())
+        .unwrap_or_default();
+    let mut items = Vec::new();
+    fn add(hw: &Hardware, items: &mut Vec<Item>, collapsed_set: &std::collections::BTreeSet<String>) {
+        // Skip empty groups (e.g. Mainboard without admin) like HWiNFO hides them.
+        if hw.sensors.is_empty() && hw.sub_hardware.is_empty() {
+            return;
+        }
+        let collapsed = collapsed_set.contains(&hw.identifier);
+        items.push(Item::Header {
+            title: group_title(hw),
+            id: hw.identifier.clone(),
+            collapsed,
+        });
+        if !collapsed {
+            for sensor in &hw.sensors {
+                items.push(Item::Row(sensor.clone()));
+            }
+        }
+        for sub in &hw.sub_hardware {
+            add(sub, items, collapsed_set);
+        }
+    }
+    for hw in tree {
+        add(hw, &mut items, &collapsed_set);
+    }
+    items
+}
+
+fn flow_columns(ui: &mut egui::Ui, items: &[Item], s: &Shared, pal: &Palette) {
+    let avail = ui.available_size();
+    let n_cols = ((avail.x / COL_MIN_W).floor() as usize).max(1);
+    let col_w = (avail.x / n_cols as f32).floor();
+    let rows_per_col = ((avail.y - 4.0) / ROW_H).floor().max(4.0) as usize;
+
+    // Overflow beyond the visible columns scrolls horizontally, like HWiNFO.
+    egui::ScrollArea::horizontal().show(ui, |ui| {
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing = Vec2::ZERO;
+            let mut idx = 0usize;
+            let mut col = 0usize;
+            while idx < items.len() {
+                let end = (idx + rows_per_col).min(items.len());
+                draw_column(ui, &items[idx..end], col_w, s, pal);
+                // Column separator.
+                let sep_rect = ui.allocate_exact_size(Vec2::new(1.0, avail.y), Sense::hover()).0;
+                ui.painter().rect_filled(sep_rect, 0.0, pal.grid);
+                idx = end;
+                col += 1;
+                let _ = col;
+            }
+        });
+    });
+}
+
+fn draw_column(ui: &mut egui::Ui, items: &[Item], col_w: f32, s: &Shared, pal: &Palette) {
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing = Vec2::ZERO;
+        let mut stripe = 0usize;
+        for item in items {
+            match item {
+                Item::Header { title, id, collapsed } => {
+                    if let Some(new_state) = widgets::group_header(ui, title, *collapsed, col_w, pal) {
+                        if let Ok(mut st) = s.settings.write() {
+                            if new_state {
+                                st.collapsed_groups.insert(id.clone());
+                            } else {
+                                st.collapsed_groups.remove(id);
+                            }
+                            st.save();
+                        }
+                    }
+                    stripe = 0;
+                }
+                Item::Row(sensor) => {
+                    draw_row(ui, sensor, col_w, stripe, pal);
+                    stripe += 1;
+                }
+            }
+        }
+    });
+}
+
+fn draw_row(ui: &mut egui::Ui, sensor: &Sensor, col_w: f32, stripe: usize, pal: &Palette) {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(col_w, ROW_H), Sense::hover());
+    let p = ui.painter();
+    let bg = if stripe % 2 == 0 { pal.row_even } else { pal.row_odd };
+    p.rect_filled(rect, 0.0, bg);
+
+    // Type icon.
+    let icon_center = Pos2::new(rect.left() + 10.0, rect.center().y);
+    paint_icon(p, icon_center, sensor.sensor_type, pal);
+
+    // Name (truncated to leave room for the value).
+    let value_text = widgets::format_value(sensor.value, sensor.sensor_type);
+    let value_color = value_severity_color(sensor, pal);
+    p.text(
+        Pos2::new(rect.left() + 20.0, rect.center().y),
+        Align2::LEFT_CENTER,
+        truncate(&sensor.name, ((col_w - 90.0) / 5.6) as usize),
+        FontId::proportional(11.0),
+        pal.text,
+    );
+    p.text(
+        Pos2::new(rect.right() - 6.0, rect.center().y),
+        Align2::RIGHT_CENTER,
+        &value_text,
+        FontId::monospace(10.5),
+        value_color,
+    );
+
+    resp.on_hover_ui(|ui| {
+        ui.label(RichText::new(&sensor.name).strong());
+        ui.label(format!(
+            "Current: {}   Min: {}   Max: {}   Avg: {}",
+            widgets::format_value(sensor.value, sensor.sensor_type),
+            widgets::format_value(sensor.min, sensor.sensor_type),
+            widgets::format_value(sensor.max, sensor.sensor_type),
+            widgets::format_value(sensor.avg, sensor.sensor_type),
+        ));
+    });
+}
+
+/// Warning/critical coloring: temps ≥ 80/90 °C, loads ≥ 95 %.
+fn value_severity_color(sensor: &Sensor, pal: &Palette) -> egui::Color32 {
+    if let Some(v) = sensor.value {
+        match sensor.sensor_type {
+            SensorType::Temperature if v >= 90.0 => return pal.crit,
+            SensorType::Temperature if v >= 80.0 => return pal.warn,
+            SensorType::Load if v >= 95.0 => return pal.warn,
+            _ => {}
+        }
+    }
+    pal.value
+}
+
+fn paint_icon(p: &egui::Painter, c: Pos2, t: SensorType, pal: &Palette) {
+    let col = widgets::type_color(t, pal);
+    match t {
+        SensorType::Voltage | SensorType::Current | SensorType::Power | SensorType::Energy => {
+            let pts = vec![
+                Pos2::new(c.x + 1.5, c.y - 5.0),
+                Pos2::new(c.x - 2.5, c.y + 0.5),
+                Pos2::new(c.x - 0.5, c.y + 0.5),
+                Pos2::new(c.x - 1.5, c.y + 5.0),
+                Pos2::new(c.x + 2.5, c.y - 0.5),
+                Pos2::new(c.x + 0.5, c.y - 0.5),
+            ];
+            p.add(egui::Shape::convex_polygon(pts, col, Stroke::NONE));
+        }
+        SensorType::Clock | SensorType::Frequency | SensorType::TimeSpan => {
+            p.circle_stroke(c, 4.0, Stroke::new(1.1, col));
+            p.line_segment([c, Pos2::new(c.x, c.y - 2.6)], Stroke::new(0.9, col));
+            p.line_segment([c, Pos2::new(c.x + 1.9, c.y + 0.7)], Stroke::new(0.9, col));
+        }
+        SensorType::Temperature => {
+            p.line_segment([Pos2::new(c.x, c.y - 4.5), Pos2::new(c.x, c.y + 1.0)], Stroke::new(1.8, col));
+            p.circle_filled(Pos2::new(c.x, c.y + 2.8), 2.2, col);
+        }
+        SensorType::Fan | SensorType::Flow | SensorType::Control => {
+            p.circle_filled(c, 1.2, col);
+            for a in [0.0f32, 2.094, 4.189] {
+                let dir = Vec2::new(a.cos(), a.sin());
+                p.circle_filled(c + dir * 2.8, 1.6, col);
+            }
+        }
+        SensorType::Load | SensorType::Level | SensorType::Factor => {
+            let r = egui::Rect::from_center_size(c, Vec2::splat(7.0));
+            p.rect_stroke(r, 1.0, Stroke::new(1.1, col), egui::StrokeKind::Inside);
+        }
+        _ => {
+            p.circle_filled(c, 1.8, col);
+        }
+    }
+}
+
+fn truncate(sensor: &str, max_chars: usize) -> String {
+    if sensor.chars().count() <= max_chars.max(8) {
+        sensor.to_string()
+    } else {
+        let cut: String = sensor.chars().take(max_chars.max(8).saturating_sub(1)).collect();
+        format!("{cut}…")
+    }
+}
