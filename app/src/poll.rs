@@ -62,6 +62,10 @@ impl Monitor {
         self.source.name()
     }
 
+    pub fn diagnostics(&self) -> crate::source::Diagnostics {
+        self.source.diagnostics()
+    }
+
     /// Poll the source once and fold the readings into the running statistics.
     /// Returns the freshly enriched tree (also cached as `latest`).
     pub fn poll(&mut self) -> Vec<Hardware> {

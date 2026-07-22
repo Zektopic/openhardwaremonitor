@@ -16,11 +16,28 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use serde::Deserialize;
+
 use crate::model::Hardware;
+
+/// Driver / elevation diagnostics from the sidecar's first line — surfaced in
+/// the Settings → Driver Management tab to explain zero sensors.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct BridgeMeta {
+    pub lhm_version: String,
+    pub is_elevated: bool,
+    pub ring0_report: String,
+}
+
+#[derive(Deserialize)]
+struct MetaLine {
+    meta: BridgeMeta,
+}
 
 pub struct LhmBridge {
     child: Child,
     latest: Arc<Mutex<Vec<Hardware>>>,
+    meta: Arc<Mutex<Option<BridgeMeta>>>,
 }
 
 const SIDECAR_EXE: &str = "sensorview-bridge.exe";
@@ -32,6 +49,8 @@ impl LhmBridge {
 
         let mut cmd = Command::new(&exe);
         cmd.stdout(Stdio::piped()).stderr(Stdio::null());
+        // So the sidecar can watch us and self-exit if we die (no orphans).
+        cmd.env("SENSORVIEW_PARENT_PID", std::process::id().to_string());
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -45,10 +64,20 @@ impl LhmBridge {
         let stdout = child.stdout.take().ok_or("sidecar stdout unavailable")?;
 
         let latest: Arc<Mutex<Vec<Hardware>>> = Arc::new(Mutex::new(Vec::new()));
+        let meta: Arc<Mutex<Option<BridgeMeta>>> = Arc::new(Mutex::new(None));
         let sink = latest.clone();
+        let meta_sink = meta.clone();
         std::thread::spawn(move || {
             for line in BufReader::new(stdout).lines() {
                 let Ok(line) = line else { break };
+                // The first line is the diagnostics meta object; the rest are
+                // hardware-tree arrays.
+                if let Ok(m) = serde_json::from_str::<MetaLine>(&line) {
+                    if let Ok(mut slot) = meta_sink.lock() {
+                        *slot = Some(m.meta);
+                    }
+                    continue;
+                }
                 if let Ok(tree) = serde_json::from_str::<Vec<Hardware>>(&line) {
                     if let Ok(mut slot) = sink.lock() {
                         *slot = tree;
@@ -63,7 +92,7 @@ impl LhmBridge {
         let deadline = Instant::now() + Duration::from_secs(15);
         loop {
             if !latest.lock().map(|t| t.is_empty()).unwrap_or(true) {
-                return Ok(Self { child, latest });
+                return Ok(Self { child, latest, meta });
             }
             if let Ok(Some(status)) = child.try_wait() {
                 return Err(format!("sidecar exited early: {status}"));
@@ -84,6 +113,15 @@ impl super::SensorSource for LhmBridge {
 
     fn snapshot(&mut self) -> Vec<Hardware> {
         self.latest.lock().map(|t| t.clone()).unwrap_or_default()
+    }
+
+    fn diagnostics(&self) -> super::Diagnostics {
+        let meta = self.meta.lock().ok().and_then(|m| m.clone()).unwrap_or_default();
+        super::Diagnostics {
+            elevated: Some(meta.is_elevated),
+            engine_version: format!("LibreHardwareMonitor {}", meta.lhm_version),
+            driver_report: meta.ring0_report,
+        }
     }
 }
 

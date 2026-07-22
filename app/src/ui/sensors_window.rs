@@ -14,7 +14,7 @@ use crate::model::{Hardware, HardwareType, Sensor, SensorType};
 const COL_MIN_W: f32 = 250.0;
 
 enum Item {
-    Header { title: String, id: String, collapsed: bool },
+    Header { title: String, id: String, hw_type: HardwareType, collapsed: bool },
     Row(Sensor),
 }
 
@@ -43,6 +43,26 @@ pub fn show(ui: &mut egui::Ui, s: &Shared) {
             ui.horizontal(|ui| {
                 ui.label(RichText::new("⏱").size(12.0));
                 ui.label(RichText::new(s.uptime_text()).color(pal.text_dim).size(11.0));
+
+                // Logging status text.
+                let (logging, rows, path) = s
+                    .logger
+                    .lock()
+                    .map(|l| {
+                        l.as_ref()
+                            .map(|lg| (true, lg.rows(), lg.path().display().to_string()))
+                            .unwrap_or((false, 0, String::new()))
+                    })
+                    .unwrap_or((false, 0, String::new()));
+                if logging {
+                    ui.label(
+                        RichText::new(format!("● REC {rows} rows"))
+                            .color(pal.crit)
+                            .size(11.0),
+                    )
+                    .on_hover_text(path);
+                }
+
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
                         .button(RichText::new("✕").color(pal.accent).size(12.0))
@@ -57,6 +77,18 @@ pub fn show(ui: &mut egui::Ui, s: &Shared) {
                         .clicked()
                     {
                         WindowFlags::open(&s.windows.settings);
+                    }
+                    // CSV logging toggle.
+                    let log_label = if logging { "■ Stop Logging" } else { "📄 Start Logging" };
+                    let log_col = if logging { pal.crit } else { pal.text };
+                    if ui.button(RichText::new(log_label).color(log_col).size(11.0)).clicked() {
+                        if let Ok(mut slot) = s.logger.lock() {
+                            if slot.is_some() {
+                                *slot = None; // stop
+                            } else if let Ok(l) = crate::logging::CsvLogger::start(&tree) {
+                                *slot = Some(l);
+                            }
+                        }
                     }
                     if ui
                         .button(RichText::new("Reset Min/Max").size(11.0))
@@ -123,6 +155,7 @@ fn build_items(tree: &[Hardware], s: &Shared) -> Vec<Item> {
         items.push(Item::Header {
             title: group_title(hw),
             id: hw.identifier.clone(),
+            hw_type: hw.hardware_type,
             collapsed,
         });
         if !collapsed {
@@ -172,8 +205,8 @@ fn draw_column(ui: &mut egui::Ui, items: &[Item], col_w: f32, s: &Shared, pal: &
         let mut stripe = 0usize;
         for item in items {
             match item {
-                Item::Header { title, id, collapsed } => {
-                    if let Some(new_state) = widgets::group_header(ui, title, *collapsed, col_w, pal) {
+                Item::Header { title, id, hw_type, collapsed } => {
+                    if let Some(new_state) = widgets::group_header(ui, title, *hw_type, *collapsed, col_w, pal) {
                         if let Ok(mut st) = s.settings.write() {
                             if new_state {
                                 st.collapsed_groups.insert(id.clone());
@@ -186,7 +219,7 @@ fn draw_column(ui: &mut egui::Ui, items: &[Item], col_w: f32, s: &Shared, pal: &
                     stripe = 0;
                 }
                 Item::Row(sensor) => {
-                    draw_row(ui, sensor, col_w, stripe, pal);
+                    draw_row(ui, sensor, col_w, stripe, s, pal);
                     stripe += 1;
                 }
             }
@@ -194,8 +227,8 @@ fn draw_column(ui: &mut egui::Ui, items: &[Item], col_w: f32, s: &Shared, pal: &
     });
 }
 
-fn draw_row(ui: &mut egui::Ui, sensor: &Sensor, col_w: f32, stripe: usize, pal: &Palette) {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(col_w, ROW_H), Sense::hover());
+fn draw_row(ui: &mut egui::Ui, sensor: &Sensor, col_w: f32, stripe: usize, s: &Shared, pal: &Palette) {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(col_w, ROW_H), Sense::click());
     let p = ui.painter();
     let bg = if stripe % 2 == 0 { pal.row_even } else { pal.row_odd };
     p.rect_filled(rect, 0.0, bg);
@@ -222,7 +255,13 @@ fn draw_row(ui: &mut egui::Ui, sensor: &Sensor, col_w: f32, stripe: usize, pal: 
         value_color,
     );
 
-    resp.on_hover_ui(|ui| {
+    let graphed = s
+        .graphs
+        .read()
+        .map(|g| g.contains(&sensor.identifier))
+        .unwrap_or(false);
+
+    resp.clone().on_hover_ui(|ui| {
         ui.label(RichText::new(&sensor.name).strong());
         ui.label(format!(
             "Current: {}   Min: {}   Max: {}   Avg: {}",
@@ -231,7 +270,29 @@ fn draw_row(ui: &mut egui::Ui, sensor: &Sensor, col_w: f32, stripe: usize, pal: 
             widgets::format_value(sensor.max, sensor.sensor_type),
             widgets::format_value(sensor.avg, sensor.sensor_type),
         ));
+        ui.label(RichText::new("Right-click for graph").italics().weak());
     });
+
+    // Left- or right-click → toggle this sensor's graph window.
+    resp.context_menu(|ui| {
+        let label = if graphed { "Hide Graph" } else { "Show Graph" };
+        if ui.button(label).clicked() {
+            toggle_graph(s, &sensor.identifier, graphed);
+        }
+    });
+    if resp.clicked() {
+        toggle_graph(s, &sensor.identifier, graphed);
+    }
+}
+
+fn toggle_graph(s: &Shared, identifier: &str, currently_open: bool) {
+    if let Ok(mut set) = s.graphs.write() {
+        if currently_open {
+            set.remove(identifier);
+        } else {
+            set.insert(identifier.to_string());
+        }
+    }
 }
 
 /// Warning/critical coloring: temps ≥ 80/90 °C, loads ≥ 95 %.

@@ -19,9 +19,98 @@ pub fn type_color(t: SensorType, pal: &Palette) -> Color32 {
     }
 }
 
+/// Parse a hardware vendor from a device name → (badge text, brand color).
+/// Trademark-safe: our own colored text badge, no copied logos.
+pub fn vendor_badge(name: &str) -> Option<(&'static str, Color32)> {
+    let n = name.to_uppercase();
+    if n.contains("NVIDIA") || n.contains("GEFORCE") || n.contains("RTX") || n.contains("GTX") {
+        Some(("NVIDIA", Color32::from_rgb(0x76, 0xb9, 0x00)))
+    } else if n.contains("RADEON") || n.contains("AMD") || n.contains("RYZEN") {
+        Some(("AMD", Color32::from_rgb(0xed, 0x1c, 0x24)))
+    } else if n.contains("INTEL") || n.contains("CORE I") {
+        Some(("INTEL", Color32::from_rgb(0x00, 0x71, 0xc5)))
+    } else if n.contains("CORSAIR") {
+        Some(("CORSAIR", Color32::from_rgb(0xff, 0xd2, 0x00)))
+    } else if n.contains("SAMSUNG") {
+        Some(("SAMSUNG", Color32::from_rgb(0x14, 0x28, 0xa0)))
+    } else if n.contains("MSI") {
+        Some(("MSI", Color32::from_rgb(0xd4, 0x00, 0x00)))
+    } else {
+        None
+    }
+}
+
+/// Paint a small colored category glyph for a hardware type (group bands/tree).
+pub fn hardware_icon(ui: &egui::Ui, rect: egui::Rect, t: crate::model::HardwareType, pal: &Palette) {
+    use crate::model::HardwareType as H;
+    let p = ui.painter();
+    let c = rect.center();
+    let col = match t {
+        H::Cpu => pal.accent,
+        H::GpuNvidia | H::GpuAti | H::GpuIntel => pal.ok_badge,
+        H::Ram => pal.clockc,
+        H::Storage | H::Hdd => pal.warn,
+        H::Network => pal.fanc,
+        H::Battery | H::Psu => pal.volt,
+        _ => pal.text_dim,
+    };
+    match t {
+        H::Cpu | H::Mainboard | H::SuperIO | H::EmbeddedController => {
+            // Chip: square with pins.
+            let r = egui::Rect::from_center_size(c, Vec2::splat(8.0));
+            p.rect_stroke(r, 1.0, Stroke::new(1.2, col), StrokeKind::Inside);
+            let inner = egui::Rect::from_center_size(c, Vec2::splat(3.5));
+            p.rect_filled(inner, 0.0, col);
+        }
+        H::GpuNvidia | H::GpuAti | H::GpuIntel => {
+            // Card: rectangle + fan circle.
+            let r = egui::Rect::from_min_size(Pos2::new(c.x - 5.0, c.y - 3.5), Vec2::new(10.0, 7.0));
+            p.rect_stroke(r, 1.0, Stroke::new(1.2, col), StrokeKind::Inside);
+            p.circle_stroke(Pos2::new(c.x + 1.5, c.y), 1.8, Stroke::new(1.0, col));
+        }
+        H::Ram => {
+            // Memory stick.
+            let r = egui::Rect::from_min_size(Pos2::new(c.x - 5.0, c.y - 3.0), Vec2::new(10.0, 6.0));
+            p.rect_stroke(r, 0.0, Stroke::new(1.2, col), StrokeKind::Inside);
+            for dx in [-2.5, 0.0, 2.5] {
+                p.line_segment(
+                    [Pos2::new(c.x + dx, c.y + 3.0), Pos2::new(c.x + dx, c.y + 5.0)],
+                    Stroke::new(1.0, col),
+                );
+            }
+        }
+        H::Storage | H::Hdd => {
+            p.circle_stroke(c, 4.5, Stroke::new(1.2, col));
+            p.circle_filled(c, 1.2, col);
+        }
+        H::Network => {
+            p.circle_filled(Pos2::new(c.x - 3.0, c.y + 3.0), 1.5, col);
+            p.circle_filled(Pos2::new(c.x, c.y - 3.0), 1.5, col);
+            p.circle_filled(Pos2::new(c.x + 3.0, c.y + 3.0), 1.5, col);
+        }
+        _ => {
+            p.circle_filled(c, 3.0, col);
+        }
+    }
+}
+
+/// Paint a small colored dot marker for a sensor type at the cursor (used in
+/// the graph header where a full icon would be overkill).
+pub fn sensor_icon_at_cursor(ui: &mut egui::Ui, t: SensorType, pal: &Palette) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(10.0), egui::Sense::hover());
+    ui.painter().circle_filled(rect.center(), 4.0, type_color(t, pal));
+}
+
 /// Collapsible group header band ("CPU [#0]: AMD Ryzen 7 7700"). Returns the
 /// new collapsed state (None = unchanged).
-pub fn group_header(ui: &mut egui::Ui, title: &str, collapsed: bool, width: f32, pal: &Palette) -> Option<bool> {
+pub fn group_header(
+    ui: &mut egui::Ui,
+    title: &str,
+    hw_type: crate::model::HardwareType,
+    collapsed: bool,
+    width: f32,
+    pal: &Palette,
+) -> Option<bool> {
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, ROW_H + 1.0), egui::Sense::click());
     let p = ui.painter();
     p.rect_filled(rect, 0.0, pal.bg_header);
@@ -34,14 +123,38 @@ pub fn group_header(ui: &mut egui::Ui, title: &str, collapsed: bool, width: f32,
         Pos2::new(rect.left() + 4.0, rect.center().y),
         egui::Align2::LEFT_CENTER,
         chev,
-        egui::FontId::proportional(10.0),
+        egui::FontId::proportional(9.0),
         pal.text_dim,
     );
-    p.text(
-        Pos2::new(rect.left() + 16.0, rect.center().y),
+    // Category icon.
+    let icon_rect = egui::Rect::from_center_size(
+        Pos2::new(rect.left() + 20.0, rect.center().y),
+        Vec2::splat(12.0),
+    );
+    hardware_icon(ui, icon_rect, hw_type, pal);
+
+    // Vendor badge (if recognizable), then title.
+    let mut x = rect.left() + 30.0;
+    if let Some((vendor, color)) = vendor_badge(title) {
+        let galley = ui.painter().layout_no_wrap(
+            vendor.to_string(),
+            egui::FontId::proportional(8.5),
+            Color32::WHITE,
+        );
+        let bw = galley.size().x + 6.0;
+        let brect = egui::Rect::from_min_size(
+            Pos2::new(x, rect.center().y - 6.0),
+            Vec2::new(bw, 12.0),
+        );
+        ui.painter().rect_filled(brect, 2.0, color);
+        ui.painter().galley(Pos2::new(x + 3.0, rect.center().y - galley.size().y / 2.0), galley, Color32::WHITE);
+        x += bw + 4.0;
+    }
+    ui.painter().text(
+        Pos2::new(x, rect.center().y),
         egui::Align2::LEFT_CENTER,
         title,
-        egui::FontId::proportional(11.5),
+        egui::FontId::proportional(11.0),
         pal.text,
     );
     if resp.clicked() {

@@ -8,6 +8,7 @@
 // Hide the console window on Windows release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod logging;
 mod model;
 mod poll;
 mod report;
@@ -35,6 +36,8 @@ fn main() -> eframe::Result {
         settings: Arc::new(RwLock::new(app_settings.clone())),
         sysinfo: sysinfo::spawn_query(),
         windows: Arc::new(WindowFlags::default()),
+        graphs: Arc::new(RwLock::new(std::collections::BTreeSet::new())),
+        logger: Arc::new(Mutex::new(None)),
         started: Instant::now(),
     };
 
@@ -47,9 +50,27 @@ fn main() -> eframe::Result {
         .windows
         .sensors
         .store(app_settings.show_sensors_on_startup, Ordering::Relaxed);
-    // Dev/testing affordance: open the Settings dialog immediately.
+    // Dev/testing affordances (env-gated, harmless in normal use).
     if std::env::var("SENSORVIEW_SHOW_SETTINGS").is_ok() {
         shared.windows.settings.store(true, Ordering::Relaxed);
+    }
+    // Prime one snapshot so graph/logging dev-hooks have sensors to attach to.
+    if std::env::var("SENSORVIEW_OPEN_GRAPH").is_ok() || std::env::var("SENSORVIEW_START_LOGGING").is_ok() {
+        let tree = shared.monitor.lock().map(|mut m| m.poll()).unwrap_or_default();
+        if let Ok(needle) = std::env::var("SENSORVIEW_OPEN_GRAPH") {
+            if let Some(id) = first_sensor_matching(&tree, &needle) {
+                shared.windows.sensors.store(true, Ordering::Relaxed);
+                if let Ok(mut g) = shared.graphs.write() {
+                    g.insert(id);
+                }
+            }
+        }
+        if std::env::var("SENSORVIEW_START_LOGGING").is_ok() {
+            if let Ok(l) = logging::CsvLogger::start(&tree) {
+                *shared.logger.lock().unwrap() = Some(l);
+                shared.windows.sensors.store(true, Ordering::Relaxed);
+            }
+        }
     }
 
     let options = eframe::NativeOptions {
@@ -101,20 +122,41 @@ impl eframe::App for SensorViewApp {
     }
 }
 
-/// Background thread: poll once per interval and wake the UI to repaint.
+/// Background thread: poll once per interval, feed the CSV logger, and wake the
+/// UI to repaint. The logger lives here so file IO never blocks the UI thread.
 fn spawn_poll_thread(ctx: egui::Context, shared: Shared, interval: Duration) {
     std::thread::spawn(move || loop {
-        {
-            match shared.monitor.lock() {
-                Ok(mut m) => {
-                    m.poll();
-                }
-                Err(_) => break, // poisoned; nothing sensible to do
+        let tree = match shared.monitor.lock() {
+            Ok(mut m) => m.poll(),
+            Err(_) => break, // poisoned; nothing sensible to do
+        };
+        if let Ok(mut logger) = shared.logger.lock() {
+            if let Some(l) = logger.as_mut() {
+                l.log(&tree);
             }
         }
         ctx.request_repaint();
         std::thread::sleep(interval);
     });
+}
+
+/// First sensor identifier whose name contains `needle` (case-insensitive).
+fn first_sensor_matching(tree: &[model::Hardware], needle: &str) -> Option<String> {
+    let needle = needle.to_lowercase();
+    fn walk(tree: &[model::Hardware], needle: &str) -> Option<String> {
+        for hw in tree {
+            for s in &hw.sensors {
+                if s.name.to_lowercase().contains(needle) {
+                    return Some(s.identifier.clone());
+                }
+            }
+            if let Some(f) = walk(&hw.sub_hardware, needle) {
+                return Some(f);
+            }
+        }
+        None
+    }
+    walk(tree, &needle)
 }
 
 /// Window icon (32×32 PNG baked into the binary).
