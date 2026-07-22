@@ -14,6 +14,16 @@ pub mod lhm_bridge;
 
 use crate::model::Hardware;
 
+/// Backend health/driver diagnostics, surfaced in Settings → Driver Management
+/// to explain why some sensors read zero.
+#[derive(Debug, Clone, Default)]
+pub struct Diagnostics {
+    /// Sensor-engine version string.
+    pub engine_version: String,
+    /// Kernel-driver report (WinRing0 open/install status, blocklist errors).
+    pub driver_report: String,
+}
+
 /// A backend that can produce a full snapshot of the machine's hardware tree.
 ///
 /// Implementations are polled on a fixed interval by [`crate::poll::Monitor`];
@@ -25,6 +35,11 @@ pub trait SensorSource: Send {
 
     /// Read a fresh snapshot of the hardware tree. Called once per poll tick.
     fn snapshot(&mut self) -> Vec<Hardware>;
+
+    /// Driver/elevation diagnostics (default: none).
+    fn diagnostics(&self) -> Diagnostics {
+        Diagnostics::default()
+    }
 }
 
 /// Pick the best available source for the current build/platform.

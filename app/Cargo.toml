@@ -32,8 +32,8 @@ strip = true
 product-name = "SensorView"
 identifier = "com.sensorview.desktop"
 category = "Utility"
-icons = ["assets/icon.ico", "assets/32x32.png"]
-# Windows: ship the LibreHardwareMonitor sidecar next to the app
-# (published by `dotnet publish` in CI before packaging).
-[package.metadata.packager.windows]
-resources = ["sidecar/publish/sensorview-bridge.exe"]
+icons = ["assets/icon.png", "assets/icon.ico", "assets/32x32.png"]
+# Ship the LibreHardwareMonitor sidecar next to the app. `resources` is a
+# top-level field; the glob resolves to nothing on non-Windows runners (where
+# the .NET win-x64 sidecar isn't published), so it's harmless there.
+resources = ["sidecar/publish/*.exe"]

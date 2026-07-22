@@ -86,8 +86,16 @@ fn cpu_panel(ui: &mut egui::Ui, i: &crate::sysinfo::SystemInfo, tree: &[Hardware
             &i.cpu.l3_kb.map(|k| format!("{} MB", k / 1024)).unwrap_or_default(),
             pal,
         );
-        info_row(ui, "Codename:", "", pal); // needs CPUID — native engine
-        info_row(ui, "TDP:", "", pal);
+        info_row(ui, "Codename:", &i.cpu.codename, pal);
+        info_row(ui, "CPUID:", &i.cpu.cpuid, pal);
+        info_row(
+            ui,
+            "Package Power:",
+            &cpu_sensor(tree, SensorType::Power, "package")
+                .map(|v| format!("{v:.1} W"))
+                .unwrap_or_default(),
+            pal,
+        );
 
         ui.add_space(4.0);
         ui.label(RichText::new("Features").color(pal.text_dim).size(10.5));
@@ -309,6 +317,20 @@ fn gpu_os_drives_panels(ui: &mut egui::Ui, i: &crate::sysinfo::SystemInfo, tree:
 }
 
 // ---- live-sensor helpers ------------------------------------------------
+
+/// First CPU sensor of a type whose name contains `needle` (case-insensitive).
+fn cpu_sensor(tree: &[Hardware], t: SensorType, needle: &str) -> Option<f32> {
+    for hw in tree {
+        if hw.hardware_type == HardwareType::Cpu {
+            for s in &hw.sensors {
+                if s.sensor_type == t && s.name.to_lowercase().contains(needle) {
+                    return s.value;
+                }
+            }
+        }
+    }
+    None
+}
 
 fn collect_cpu(tree: &[Hardware], t: SensorType, name_contains: &str) -> Vec<f32> {
     let mut out = Vec::new();

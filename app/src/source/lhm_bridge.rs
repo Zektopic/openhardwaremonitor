@@ -16,11 +16,31 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use serde::Deserialize;
+
 use crate::model::Hardware;
+
+/// Driver / elevation diagnostics from the sidecar's first line — surfaced in
+/// the Settings → Driver Management tab to explain zero sensors.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct BridgeMeta {
+    pub lhm_version: String,
+    /// Present in the JSON but unused — elevation is detected app-side
+    /// ([`crate::sysinfo::is_elevated`]), which is authoritative.
+    #[allow(dead_code)]
+    pub is_elevated: bool,
+    pub ring0_report: String,
+}
+
+#[derive(Deserialize)]
+struct MetaLine {
+    meta: BridgeMeta,
+}
 
 pub struct LhmBridge {
     child: Child,
     latest: Arc<Mutex<Vec<Hardware>>>,
+    meta: Arc<Mutex<Option<BridgeMeta>>>,
 }
 
 const SIDECAR_EXE: &str = "sensorview-bridge.exe";
@@ -30,8 +50,17 @@ impl LhmBridge {
     pub fn spawn() -> Result<Self, String> {
         let exe = find_sidecar().ok_or_else(|| format!("{SIDECAR_EXE} not found"))?;
 
+        // Kill any stale sidecars first. Orphans from a previous crash keep the
+        // WinRing0 driver / AMD SMU open; a second instance then contends for it
+        // and the SMU-derived sensors (package/core power, effective clocks)
+        // read 0 while VIDs still work — exactly the "0 W / 0 MHz" symptom.
+        #[cfg(windows)]
+        kill_stale_sidecars();
+
         let mut cmd = Command::new(&exe);
         cmd.stdout(Stdio::piped()).stderr(Stdio::null());
+        // So the sidecar can watch us and self-exit if we die (no orphans).
+        cmd.env("SENSORVIEW_PARENT_PID", std::process::id().to_string());
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -45,10 +74,20 @@ impl LhmBridge {
         let stdout = child.stdout.take().ok_or("sidecar stdout unavailable")?;
 
         let latest: Arc<Mutex<Vec<Hardware>>> = Arc::new(Mutex::new(Vec::new()));
+        let meta: Arc<Mutex<Option<BridgeMeta>>> = Arc::new(Mutex::new(None));
         let sink = latest.clone();
+        let meta_sink = meta.clone();
         std::thread::spawn(move || {
             for line in BufReader::new(stdout).lines() {
                 let Ok(line) = line else { break };
+                // The first line is the diagnostics meta object; the rest are
+                // hardware-tree arrays.
+                if let Ok(m) = serde_json::from_str::<MetaLine>(&line) {
+                    if let Ok(mut slot) = meta_sink.lock() {
+                        *slot = Some(m.meta);
+                    }
+                    continue;
+                }
                 if let Ok(tree) = serde_json::from_str::<Vec<Hardware>>(&line) {
                     if let Ok(mut slot) = sink.lock() {
                         *slot = tree;
@@ -63,7 +102,7 @@ impl LhmBridge {
         let deadline = Instant::now() + Duration::from_secs(15);
         loop {
             if !latest.lock().map(|t| t.is_empty()).unwrap_or(true) {
-                return Ok(Self { child, latest });
+                return Ok(Self { child, latest, meta });
             }
             if let Ok(Some(status)) = child.try_wait() {
                 return Err(format!("sidecar exited early: {status}"));
@@ -85,6 +124,18 @@ impl super::SensorSource for LhmBridge {
     fn snapshot(&mut self) -> Vec<Hardware> {
         self.latest.lock().map(|t| t.clone()).unwrap_or_default()
     }
+
+    fn diagnostics(&self) -> super::Diagnostics {
+        let meta = self.meta.lock().ok().and_then(|m| m.clone()).unwrap_or_default();
+        super::Diagnostics {
+            engine_version: if meta.lhm_version.is_empty() {
+                String::new()
+            } else {
+                format!("LibreHardwareMonitor {}", meta.lhm_version)
+            },
+            driver_report: meta.ring0_report,
+        }
+    }
 }
 
 impl Drop for LhmBridge {
@@ -92,6 +143,23 @@ impl Drop for LhmBridge {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
+}
+
+/// Force-kill any leftover sidecar processes (orphans from a prior crash).
+/// When we run elevated this also clears elevated orphans that would otherwise
+/// hog the SMU and zero out power/clock sensors.
+#[cfg(windows)]
+fn kill_stale_sidecars() {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let _ = Command::new("taskkill")
+        .args(["/F", "/IM", SIDECAR_EXE])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    // Give the driver a moment to release before the fresh instance opens it.
+    std::thread::sleep(Duration::from_millis(300));
 }
 
 /// Locate the sidecar: next to our exe (packaged install), then the dev

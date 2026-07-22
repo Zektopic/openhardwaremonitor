@@ -100,14 +100,15 @@ pub fn show(ui: &mut egui::Ui, s: &Shared, state: &mut MainWindowState) {
                 .map(|i| i.computer_name.clone())
                 .filter(|n| !n.is_empty())
                 .unwrap_or_else(|| "Computer".into());
-            tree_node(ui, &computer, Selection::Computer, state, &pal, true);
+            use crate::model::HardwareType as H;
+            tree_node(ui, &computer, Selection::Computer, None, state, &pal);
             ui.indent("tree_indent", |ui| {
-                tree_node(ui, "Central Processor(s)", Selection::Cpu, state, &pal, false);
-                tree_node(ui, "Motherboard", Selection::Motherboard, state, &pal, false);
-                tree_node(ui, "Memory", Selection::Memory, state, &pal, false);
-                tree_node(ui, "Video Adapter", Selection::Video, state, &pal, false);
-                tree_node(ui, "Drives", Selection::Drives, state, &pal, false);
-                tree_node(ui, "Network", Selection::Network, state, &pal, false);
+                tree_node(ui, "Central Processor(s)", Selection::Cpu, Some(H::Cpu), state, &pal);
+                tree_node(ui, "Motherboard", Selection::Motherboard, Some(H::Mainboard), state, &pal);
+                tree_node(ui, "Memory", Selection::Memory, Some(H::Ram), state, &pal);
+                tree_node(ui, "Video Adapter", Selection::Video, Some(H::GpuNvidia), state, &pal);
+                tree_node(ui, "Drives", Selection::Drives, Some(H::Storage), state, &pal);
+                tree_node(ui, "Network", Selection::Network, Some(H::Network), state, &pal);
             });
         });
 
@@ -158,21 +159,46 @@ fn tree_node(
     ui: &mut egui::Ui,
     label: &str,
     sel: Selection,
+    icon: Option<crate::model::HardwareType>,
     state: &mut MainWindowState,
     pal: &Palette,
-    root: bool,
 ) {
     let selected = state.selected == sel;
-    let text = if root {
-        RichText::new(format!("🖳 {label}")).strong()
-    } else {
-        RichText::new(format!("▸ {label}"))
-    }
-    .size(11.5)
-    .color(if selected { pal.accent } else { pal.text });
-    if ui.selectable_label(selected, text).clicked() {
+    let resp = ui
+        .horizontal(|ui| {
+            ui.add_space(2.0);
+            match icon {
+                Some(t) => super::widgets::hardware_icon_inline(ui, t, pal),
+                None => paint_computer_icon(ui, pal), // root = the machine
+            }
+            let text = RichText::new(label)
+                .size(11.5)
+                .strong()
+                .color(if selected { pal.accent } else { pal.text });
+            ui.selectable_label(selected, text)
+        })
+        .inner;
+    if resp.clicked() {
         state.selected = sel;
     }
+}
+
+/// Small monitor glyph for the root computer node.
+fn paint_computer_icon(ui: &mut egui::Ui, pal: &Palette) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(15.0, 15.0), egui::Sense::hover());
+    let p = ui.painter();
+    let screen = egui::Rect::from_center_size(
+        egui::pos2(rect.center().x, rect.center().y - 1.0),
+        egui::vec2(11.0, 8.0),
+    );
+    p.rect_stroke(screen, 1.0, egui::Stroke::new(1.2, pal.accent), egui::StrokeKind::Inside);
+    p.line_segment(
+        [
+            egui::pos2(rect.center().x - 2.5, rect.bottom() - 2.0),
+            egui::pos2(rect.center().x + 2.5, rect.bottom() - 2.0),
+        ],
+        egui::Stroke::new(1.4, pal.accent),
+    );
 }
 
 fn feature_pane(

@@ -153,23 +153,74 @@ fn general_tab(ui: &mut egui::Ui, s: &Shared, pal: &Palette) {
 }
 
 fn driver_tab(ui: &mut egui::Ui, s: &Shared, pal: &Palette) {
-    let source = s
+    let (source, diag) = s
         .monitor
         .lock()
-        .map(|m| m.source_name().to_string())
+        .map(|m| (m.source_name().to_string(), m.diagnostics()))
         .unwrap_or_default();
+    // App-token elevation is authoritative (independent of sidecar version).
+    let elevated = s.elevated;
+
     ui.add_space(6.0);
     ui.label(RichText::new("Sensor Engine").color(pal.accent).strong());
     ui.label(RichText::new(format!("Active source: {source}")).size(11.5).color(pal.text));
+    if !diag.engine_version.is_empty() {
+        ui.label(RichText::new(&diag.engine_version).size(11.0).color(pal.text_dim));
+    }
+
+    // Elevation status badge.
     ui.add_space(4.0);
-    ui.label(
-        RichText::new(
-            "Full sensor coverage (Super-I/O, MSR, SMBus, SMART) requires running \
-             SensorView as Administrator. The release build elevates automatically at launch.",
-        )
-        .size(11.0)
-        .color(pal.text_dim),
-    );
+    super::widgets::badge(ui, "Running as Administrator:", elevated, pal);
+
+    // Guidance depends on what's actually wrong.
+    ui.add_space(6.0);
+    let blocked = diag.driver_report.to_lowercase().contains("blocked")
+        || diag.driver_report.to_lowercase().contains("not signed")
+        || diag.driver_report.to_lowercase().contains("failed to load");
+    if elevated == Some(false) {
+        ui.label(
+            RichText::new(
+                "⚠ Not elevated. CPU package/core power, effective clocks, Tctl/Tdie and \
+                 fan/voltage sensors need Administrator rights. The release build elevates \
+                 automatically at launch — or right-click SensorView → Run as administrator.",
+            )
+            .size(11.0)
+            .color(pal.warn),
+        );
+    } else if blocked {
+        ui.label(
+            RichText::new(
+                "⚠ The kernel driver was blocked from loading. On Windows 11 the \
+                 vulnerable-driver blocklist (and Memory Integrity / HVCI) can block the \
+                 classic WinRing0 driver. Installing PawnIO (a signed, blocklist-clean \
+                 driver LibreHardwareMonitor can use) restores full sensor access.",
+            )
+            .size(11.0)
+            .color(pal.warn),
+        );
+        ui.hyperlink_to("Get PawnIO", "https://pawnio.eu/");
+    } else if elevated == Some(true) {
+        ui.label(
+            RichText::new("✓ Elevated and the kernel driver is available — full sensor access.")
+                .size(11.0)
+                .color(pal.ok_badge),
+        );
+    }
+
+    // Raw driver report for troubleshooting.
+    if !diag.driver_report.is_empty() && diag.driver_report != "(no ring0 section in report)" {
+        ui.add_space(8.0);
+        ui.collapsing(RichText::new("Kernel driver report").size(11.0).color(pal.text_dim), |ui| {
+            egui::ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
+                ui.label(
+                    RichText::new(&diag.driver_report)
+                        .size(10.0)
+                        .monospace()
+                        .color(pal.text_dim),
+                );
+            });
+        });
+    }
 }
 
 fn stub_tab(ui: &mut egui::Ui, pal: &Palette, text: &str) {

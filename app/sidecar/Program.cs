@@ -9,6 +9,7 @@
 // Full sensor coverage (Super-I/O, MSR, SMBus) requires administrator rights;
 // without them LibreHardwareMonitor silently exposes the subset it can reach.
 
+using System.Security.Principal;
 using System.Text.Json;
 using LibreHardwareMonitor.Hardware;
 
@@ -27,21 +28,103 @@ var computer = new Computer
 
 computer.Open();
 
+// First line: diagnostics meta so the Rust app can explain zero sensors
+// (driver blocked / not elevated). ring0_report is the ring0 slice of LHM's
+// own report, which names the exact WinRing0 open/install failure.
+var isElevated = false;
+try
+{
+    using var identity = WindowsIdentity.GetCurrent();
+    isElevated = new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
+}
+catch { /* ignore */ }
+
 // Flush the tree on Ctrl+C / kill so the driver handle is released cleanly.
 AppDomain.CurrentDomain.ProcessExit += (_, _) => computer.Close();
 Console.CancelKeyPress += (_, _) => { computer.Close(); Environment.Exit(0); };
 
-var visitor = new UpdateVisitor();
 var json = new JsonSerializerOptions { WriteIndented = false };
-var stdout = Console.Out;
+
+// Use the raw stdout stream so a broken pipe (parent gone) surfaces as an
+// IOException we can act on, instead of being swallowed by Console.Out.
+using var stdout = Console.OpenStandardOutput();
+using var writer = new StreamWriter(stdout) { AutoFlush = false };
+
+// First line: diagnostics meta so the Rust app can explain zero sensors
+// (driver blocked / not elevated). ring0_report is the ring0 slice of LHM's
+// own report, which names the exact WinRing0 open/install failure.
+var ring0Report = ExtractRing0(computer.GetReport());
+var lhmVersion = typeof(Computer).Assembly.GetName().Version?.ToString() ?? "?";
+writer.WriteLine(JsonSerializer.Serialize(new Dictionary<string, object?>
+{
+    ["meta"] = new Dictionary<string, object?>
+    {
+        ["lhm_version"] = lhmVersion,
+        ["is_elevated"] = isElevated,
+        ["ring0_report"] = ring0Report,
+    },
+}));
+writer.Flush();
+
+var visitor = new UpdateVisitor();
+
+// Watch the parent (Rust app). If it dies, exit promptly so we never orphan —
+// an elevated orphan would leak CPU and hold the driver handle.
+var parentId = Environment.GetEnvironmentVariable("SENSORVIEW_PARENT_PID");
+System.Diagnostics.Process? parent = null;
+if (int.TryParse(parentId, out var pid))
+{
+    try { parent = System.Diagnostics.Process.GetProcessById(pid); } catch { }
+}
 
 while (true)
 {
+    if (parent is { HasExited: true })
+    {
+        break;
+    }
     computer.Accept(visitor);
     var tree = computer.Hardware.Select(MapHardware).ToList();
-    stdout.WriteLine(JsonSerializer.Serialize(tree, json));
-    stdout.Flush();
+    try
+    {
+        writer.WriteLine(JsonSerializer.Serialize(tree, json));
+        writer.Flush(); // throws if the parent closed the read end of the pipe
+    }
+    catch (IOException)
+    {
+        break; // parent gone → exit
+    }
     Thread.Sleep(1000);
+}
+
+computer.Close();
+
+// Pull the "Ring0" section out of LHM's full text report — it records whether
+// the kernel driver opened, and any install/blocklist error.
+static string ExtractRing0(string report)
+{
+    var lines = report.Replace("\r\n", "\n").Split('\n');
+    var kept = new List<string>();
+    var capturing = false;
+    foreach (var line in lines)
+    {
+        if (line.StartsWith("Ring0", StringComparison.OrdinalIgnoreCase)
+            || line.Contains("WinRing0")
+            || line.Contains("Kernel Driver"))
+        {
+            capturing = true;
+        }
+        else if (capturing && line.Length > 0 && !char.IsWhiteSpace(line[0]) && line.Contains("Report"))
+        {
+            capturing = false;
+        }
+        if (capturing)
+        {
+            kept.Add(line);
+        }
+    }
+    var text = string.Join("\n", kept).Trim();
+    return text.Length == 0 ? "(no ring0 section in report)" : text;
 }
 
 static Dictionary<string, object?> MapHardware(IHardware hw)

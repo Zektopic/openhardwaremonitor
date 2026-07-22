@@ -1,18 +1,21 @@
 //! HWiNFO-style native UI: main window + deferred viewports (Sensors Status,
 //! System Summary, Settings), shared palette/theme, fonts and shared state.
 
+pub mod graph_window;
 pub mod main_window;
 pub mod sensors_window;
 pub mod settings_dialog;
 pub mod summary_window;
 pub mod widgets;
 
+use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
 use eframe::egui::{self, Color32};
 
+use crate::logging::CsvLogger;
 use crate::poll::Monitor;
 use crate::settings::{AppSettings, ColorMode};
 use crate::sysinfo::SystemInfoHandle;
@@ -45,6 +48,13 @@ pub struct Shared {
     pub settings: Arc<RwLock<AppSettings>>,
     pub sysinfo: SystemInfoHandle,
     pub windows: Arc<WindowFlags>,
+    /// Sensor identifiers with an open graph window.
+    pub graphs: Arc<RwLock<BTreeSet<String>>>,
+    /// Active CSV logger (owned/written by the poll thread).
+    pub logger: Arc<Mutex<Option<CsvLogger>>>,
+    /// Whether this process is elevated (Some) or unknown/N-A (None). Detected
+    /// in-process, so it's correct regardless of sidecar version.
+    pub elevated: Option<bool>,
     pub started: Instant,
 }
 
@@ -220,6 +230,24 @@ pub fn show_open_viewports(ctx: &egui::Context, shared: &Shared) {
                 .with_inner_size([680.0, 430.0])
                 .with_resizable(false),
             move |ui, _class| settings_dialog::show(ui, &s),
+        );
+    }
+    // One deferred viewport per open sensor graph.
+    let open_graphs: Vec<String> = shared
+        .graphs
+        .read()
+        .map(|g| g.iter().cloned().collect())
+        .unwrap_or_default();
+    for id in open_graphs {
+        let s = shared.clone();
+        let vid = egui::ViewportId::from_hash_of(("graph", &id));
+        let graph_id = id.clone();
+        ctx.show_viewport_deferred(
+            vid,
+            egui::ViewportBuilder::default()
+                .with_title("SensorView - Graph")
+                .with_inner_size([420.0, 240.0]),
+            move |ui, _class| graph_window::show(ui, &s, &graph_id),
         );
     }
 }
