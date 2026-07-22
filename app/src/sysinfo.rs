@@ -17,8 +17,69 @@ pub struct CpuInfo {
     pub l2_kb: Option<u32>,
     pub l3_kb: Option<u32>,
     pub socket: Option<String>,
+    /// CPUID(1).EAX signature, HWiNFO-style hex (e.g. "00A60F12").
+    pub cpuid: String,
+    /// Best-effort microarchitecture codename (e.g. "Raphael (Zen 4)").
+    pub codename: String,
+    pub vendor: String,
     /// ISA feature names detected at runtime (for the Summary features grid).
     pub features: Vec<(&'static str, bool)>,
+}
+
+/// Raw CPUID(1).EAX signature + vendor + codename, computed on x86_64.
+fn cpuid_info() -> (String, String, String) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        use core::arch::x86_64::__cpuid;
+        // __cpuid is safe on x86_64 (CPUID is always available).
+        let vendor_leaf = __cpuid(0);
+        let mut vbytes = Vec::new();
+        vbytes.extend_from_slice(&vendor_leaf.ebx.to_le_bytes());
+        vbytes.extend_from_slice(&vendor_leaf.edx.to_le_bytes());
+        vbytes.extend_from_slice(&vendor_leaf.ecx.to_le_bytes());
+        let vendor = String::from_utf8_lossy(&vbytes).to_string();
+
+        let leaf1 = __cpuid(1);
+        let eax = leaf1.eax;
+        let base_family = (eax >> 8) & 0xf;
+        let ext_family = (eax >> 20) & 0xff;
+        let family = if base_family == 0xf { base_family + ext_family } else { base_family };
+        let base_model = (eax >> 4) & 0xf;
+        let ext_model = (eax >> 16) & 0xf;
+        let model = (ext_model << 4) | base_model;
+
+        let codename = codename_for(&vendor, family, model);
+        (format!("{eax:08X}"), vendor, codename)
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        (String::new(), String::new(), String::new())
+    }
+}
+
+/// Coarse codename map for recent AMD/Intel desktop parts (best effort).
+fn codename_for(vendor: &str, family: u32, model: u32) -> String {
+    if vendor.contains("AuthenticAMD") {
+        match (family, model) {
+            (0x19, 0x60..=0x6f) => "Raphael (Zen 4)",
+            (0x19, 0x70..=0x7f) => "Phoenix (Zen 4)",
+            (0x19, 0x40..=0x4f) => "Rembrandt (Zen 3+)",
+            (0x19, 0x20..=0x2f) => "Vermeer (Zen 3)",
+            (0x19, 0x50..=0x5f) => "Cezanne (Zen 3)",
+            (0x1a, _) => "Granite Ridge (Zen 5)",
+            (0x17, _) => "Matisse/Renoir (Zen 2)",
+            _ => "",
+        }
+        .to_string()
+    } else if vendor.contains("GenuineIntel") {
+        match family {
+            0x6 => "Intel Core",
+            _ => "",
+        }
+        .to_string()
+    } else {
+        String::new()
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -139,6 +200,10 @@ fn query() -> SystemInfo {
         ..Default::default()
     };
     info.cpu.features = cpu_features();
+    let (cpuid, vendor, codename) = cpuid_info();
+    info.cpu.cpuid = cpuid;
+    info.cpu.vendor = vendor;
+    info.cpu.codename = codename;
 
     let Ok(wmi) = WMIConnection::new() else { return info };
 
@@ -295,10 +360,11 @@ fn read_secure_boot() -> Option<bool> {
 
 #[cfg(not(windows))]
 fn query() -> SystemInfo {
+    let (cpuid, vendor, codename) = cpuid_info();
     SystemInfo {
         computer_name: std::env::var("HOSTNAME").unwrap_or_default(),
         user_name: std::env::var("USER").unwrap_or_default(),
-        cpu: CpuInfo { features: cpu_features(), ..Default::default() },
+        cpu: CpuInfo { features: cpu_features(), cpuid, vendor, codename, ..Default::default() },
         ..Default::default()
     }
 }

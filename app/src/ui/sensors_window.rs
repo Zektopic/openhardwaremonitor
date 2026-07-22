@@ -22,7 +22,37 @@ pub fn show(ui: &mut egui::Ui, s: &Shared) {
     super::handle_close(ui, &s.windows.sensors);
     let pal = s.palette();
 
-    let tree = s.monitor.lock().map(|m| m.snapshot()).unwrap_or_default();
+    let (tree, diag) = s
+        .monitor
+        .lock()
+        .map(|m| (m.snapshot(), m.diagnostics()))
+        .unwrap_or_default();
+
+    // Elevation warning banner — the zeros (SMU power, effective clocks,
+    // Tctl/Tdie, per-core temps) mean the app isn't elevated.
+    if diag.elevated == Some(false) {
+        egui::Panel::top("elev_warn")
+            .frame(
+                egui::Frame::new()
+                    .fill(egui::Color32::from_rgb(0x5a, 0x3a, 0x10))
+                    .inner_margin(egui::Margin::symmetric(8, 4)),
+            )
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(
+                        RichText::new(
+                            "⚠ Not running as Administrator — CPU package/per-core power, \
+                             effective clocks, Tctl/Tdie, per-core temperatures and fan/voltage \
+                             sensors will read 0 or be missing. Close and relaunch via \
+                             right-click → Run as administrator (the release build does this \
+                             automatically).",
+                        )
+                        .color(egui::Color32::from_rgb(0xff, 0xd8, 0x80))
+                        .size(11.0),
+                    );
+                });
+            });
+    }
 
     // Own CPU load → window title, like HWiNFO's "(0.9%)".
     let cpu_load = find_cpu_load(&tree);
