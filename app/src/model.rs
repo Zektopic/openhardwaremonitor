@@ -28,6 +28,8 @@ pub enum SensorType {
 
 impl SensorType {
     /// Canonical display unit, as HWiNFO/OHM present it.
+    /// Used by report/CSV export (feature/ui-graphs-logging).
+    #[allow(dead_code)]
     pub fn unit(self) -> &'static str {
         match self {
             SensorType::Voltage => "V",

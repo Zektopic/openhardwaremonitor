@@ -1,0 +1,30 @@
+[package]
+name = "sensorview"
+version = "0.1.0"
+description = "SensorView — a HWiNFO-style native hardware monitor"
+authors = ["SensorView contributors"]
+edition = "2021"
+rust-version = "1.77"
+
+[dependencies]
+eframe = "0.35"
+egui_extras = "0.35"
+serde = { version = "1", features = ["derive"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[build-dependencies]
+winresource = "0.1"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
+
+# cargo-packager configuration (NSIS .exe / .deb / .dmg) — used by CI.
+[package.metadata.packager]
+product-name = "SensorView"
+identifier = "com.sensorview.desktop"
+category = "Utility"
+icons = ["assets/icon.ico", "assets/32x32.png"]

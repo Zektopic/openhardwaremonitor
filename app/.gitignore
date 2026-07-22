@@ -1,12 +1,1 @@
-# Node / frontend
-node_modules/
-dist/
-.vite/
-
-# Rust / Tauri
-src-tauri/target/
-src-tauri/gen/
-
-# Env / editor
-.env
-*.log
+target/
