@@ -1,0 +1,8 @@
+<!-- Stops the repo-root Directory.Build.props (LangVersion 7.3, for the legacy
+     C# codebase) from cascading into the SensorView tree. MSBuild only imports
+     the nearest Directory.Build.props up the directory chain. -->
+<Project>
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+</Project>

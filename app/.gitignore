@@ -1,0 +1,4 @@
+target/
+sidecar/publish/
+sidecar/bin/
+sidecar/obj/

@@ -1,0 +1,47 @@
+//! Sensor data sources.
+//!
+//! Everything the app displays comes through the [`SensorSource`] trait, so the
+//! backend that actually reads hardware can change without touching the polling
+//! engine or the UI. Two backends are planned:
+//!
+//! - `demo` — synthetic data (this branch), keeps the app useful with no drivers.
+//! - `lhm_bridge` — LibreHardwareMonitor .NET sidecar (feature/lhm-bridge).
+//! - `native` — pure-Rust engine (feature/native-*).
+
+pub mod demo;
+#[cfg(windows)]
+pub mod lhm_bridge;
+
+use crate::model::Hardware;
+
+/// A backend that can produce a full snapshot of the machine's hardware tree.
+///
+/// Implementations are polled on a fixed interval by [`crate::poll::Monitor`];
+/// they should return current instantaneous values and leave min/max/avg
+/// tracking to the monitor.
+pub trait SensorSource: Send {
+    /// Human-readable backend name (shown in the status bar / about box).
+    fn name(&self) -> &'static str;
+
+    /// Read a fresh snapshot of the hardware tree. Called once per poll tick.
+    fn snapshot(&mut self) -> Vec<Hardware>;
+}
+
+/// Pick the best available source for the current build/platform.
+///
+/// Windows: the LibreHardwareMonitor bridge (full real sensors), falling back
+/// to the demo source if the sidecar is missing or fails. Other platforms (and
+/// `SENSORVIEW_SOURCE=demo`): the demo source, until the native engine lands.
+pub fn default_source() -> Box<dyn SensorSource> {
+    if std::env::var("SENSORVIEW_SOURCE").as_deref() == Ok("demo") {
+        return Box::new(demo::DemoSource::new());
+    }
+    #[cfg(windows)]
+    {
+        match lhm_bridge::LhmBridge::spawn() {
+            Ok(bridge) => return Box::new(bridge),
+            Err(e) => eprintln!("LHM bridge unavailable ({e}); falling back to demo data"),
+        }
+    }
+    Box::new(demo::DemoSource::new())
+}
