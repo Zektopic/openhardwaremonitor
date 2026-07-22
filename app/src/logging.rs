@@ -16,11 +16,15 @@ pub struct CsvLogger {
 }
 
 impl CsvLogger {
-    /// Create a logger, writing the header from the current tree.
+    /// Create a logger writing to the user's Documents folder (falling back to
+    /// Desktop, then the temp dir), header from the current tree.
     pub fn start(tree: &[Hardware]) -> Result<Self, String> {
-        let dir = dirs::document_dir()
-            .or_else(dirs::desktop_dir)
-            .unwrap_or_else(|| PathBuf::from("."));
+        Self::start_in(&log_dir(), tree)
+    }
+
+    /// Create a logger writing into `dir` (created if missing). Used by tests.
+    pub fn start_in(dir: &std::path::Path, tree: &[Hardware]) -> Result<Self, String> {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -81,6 +85,14 @@ impl CsvLogger {
     }
 }
 
+/// A writable directory for logs: Documents → Desktop → temp dir.
+fn log_dir() -> PathBuf {
+    dirs::document_dir()
+        .or_else(dirs::desktop_dir)
+        .filter(|d| d.exists() || std::fs::create_dir_all(d).is_ok())
+        .unwrap_or_else(std::env::temp_dir)
+}
+
 /// Visit every sensor in the tree in stable (depth-first) order.
 fn collect(tree: &[Hardware], f: &mut impl FnMut(&crate::model::Sensor)) {
     for hw in tree {
@@ -123,7 +135,9 @@ mod tests {
 
     #[test]
     fn writes_header_and_rows() {
-        let mut logger = CsvLogger::start(&tree(40.0)).expect("start logger");
+        // Use the temp dir so the test is CI-safe (no ~/Documents on runners).
+        let dir = std::env::temp_dir().join("sensorview_test_logs");
+        let mut logger = CsvLogger::start_in(&dir, &tree(40.0)).expect("start logger");
         logger.log(&tree(41.0));
         logger.log(&tree(42.5));
         let path = logger.path().clone();
