@@ -101,6 +101,12 @@ pub fn sensor_icon_at_cursor(ui: &mut egui::Ui, t: SensorType, pal: &Palette) {
     ui.painter().circle_filled(rect.center(), 4.0, type_color(t, pal));
 }
 
+/// Allocate a 15×15 slot and paint the category icon inline (device tree rows).
+pub fn hardware_icon_inline(ui: &mut egui::Ui, t: crate::model::HardwareType, pal: &Palette) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(15.0), egui::Sense::hover());
+    hardware_icon(ui, rect, t, pal);
+}
+
 /// Collapsible group header band ("CPU [#0]: AMD Ryzen 7 7700"). Returns the
 /// new collapsed state (None = unchanged).
 pub fn group_header(

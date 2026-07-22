@@ -24,30 +24,55 @@ pub fn show(ui: &mut egui::Ui, s: &Shared) {
 
     let tree = s.monitor.lock().map(|m| m.snapshot()).unwrap_or_default();
 
-    // Elevation warning banner — the zeros (SMU power, effective clocks,
-    // Tctl/Tdie, per-core temps) mean the app isn't elevated. Uses the app's
-    // own token (reliable), not the sidecar's self-report.
-    if s.elevated == Some(false) {
-        egui::Panel::top("elev_warn")
+    // Diagnostic banner for the "0 W / 0 MHz" case.
+    let warmed_up = s.started.elapsed().as_secs() >= 4;
+    let banner = if s.elevated == Some(false) {
+        Some(Banner::NotElevated)
+    } else if warmed_up && driver_appears_blocked(&tree) {
+        Some(Banner::DriverBlocked)
+    } else {
+        None
+    };
+    if let Some(banner) = banner {
+        egui::Panel::top("sensor_warn")
             .frame(
                 egui::Frame::new()
                     .fill(egui::Color32::from_rgb(0x5a, 0x3a, 0x10))
                     .inner_margin(egui::Margin::symmetric(8, 4)),
             )
-            .show(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(
-                        RichText::new(
-                            "⚠ Not running as Administrator — CPU package/per-core power, \
-                             effective clocks, Tctl/Tdie, per-core temperatures and fan/voltage \
-                             sensors will read 0 or be missing. Close and relaunch via \
-                             right-click → Run as administrator (the release build does this \
-                             automatically).",
-                        )
-                        .color(egui::Color32::from_rgb(0xff, 0xd8, 0x80))
-                        .size(11.0),
-                    );
-                });
+            .show(ui, |ui| match banner {
+                Banner::NotElevated => {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(
+                            RichText::new(
+                                "⚠ Not running as Administrator — CPU power, effective clocks, \
+                                 Tctl/Tdie, per-core temperatures and fan/voltage sensors will read \
+                                 0 or be missing. Relaunch via right-click → Run as administrator \
+                                 (the release build does this automatically).",
+                            )
+                            .color(egui::Color32::from_rgb(0xff, 0xd8, 0x80))
+                            .size(11.0),
+                        );
+                    });
+                }
+                Banner::DriverBlocked => {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(
+                            RichText::new(
+                                "⚠ CPU clocks/power read 0 — the kernel driver isn't loading. \
+                                 Windows' vulnerable-driver blocklist blocks WinRing0. Install \
+                                 PawnIO (a signed, blocklist-clean driver the sensor engine can \
+                                 use) and relaunch:",
+                            )
+                            .color(egui::Color32::from_rgb(0xff, 0xd8, 0x80))
+                            .size(11.0),
+                        );
+                        ui.hyperlink_to(
+                            RichText::new("pawnio.eu").size(11.0),
+                            "https://pawnio.eu/",
+                        );
+                    });
+                }
             });
     }
 
@@ -136,6 +161,31 @@ pub fn show(ui: &mut egui::Ui, s: &Shared) {
             let items = build_items(&tree, s);
             flow_columns(ui, &items, s, &pal);
         });
+}
+
+enum Banner {
+    NotElevated,
+    DriverBlocked,
+}
+
+/// Heuristic: the driver is (probably) blocked if the CPU exposes clock/power
+/// sensors but they're all zero — that's the WinRing0-blocked signature.
+fn driver_appears_blocked(tree: &[Hardware]) -> bool {
+    let mut saw_driver_sensor = false;
+    let mut all_zero = true;
+    for hw in tree {
+        if hw.hardware_type == HardwareType::Cpu {
+            for s in &hw.sensors {
+                if matches!(s.sensor_type, SensorType::Clock | SensorType::Power) {
+                    saw_driver_sensor = true;
+                    if s.value.unwrap_or(0.0).abs() > 0.01 {
+                        all_zero = false;
+                    }
+                }
+            }
+        }
+    }
+    saw_driver_sensor && all_zero
 }
 
 fn find_cpu_load(tree: &[Hardware]) -> Option<f32> {
