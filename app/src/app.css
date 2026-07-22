@@ -1,0 +1,37 @@
+:root {
+  /* HWiNFO-style dense, high-contrast palette. */
+  --bg: #1e1e1e;
+  --bg-panel: #252526;
+  --bg-header: #2d2d30;
+  --row-even: #232323;
+  --row-odd: #1c1c1c;
+  --grid: #3a3a3a;
+  --text: #e0e0e0;
+  --text-dim: #9a9a9a;
+  --accent: #3794ff;
+  --value: #4ec9b0;
+  --warn: #d7ba7d;
+  --crit: #f14c4c;
+
+  font-family: "Segoe UI", Tahoma, "Helvetica Neue", Arial, sans-serif;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  -webkit-user-select: none;
+  user-select: none;
+}

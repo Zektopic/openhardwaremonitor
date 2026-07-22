@@ -1,0 +1,32 @@
+[package]
+name = "sensorview"
+version = "0.1.0"
+description = "SensorView — a HWiNFO-style hardware monitor"
+authors = ["SensorView contributors"]
+edition = "2021"
+rust-version = "1.77"
+
+# The library the (thin) binary and any future mobile targets share.
+[lib]
+name = "sensorview_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[features]
+# Enables the LibreHardwareMonitor .NET sidecar backend (Windows-only, added on
+# feature/lhm-bridge). Off by default so the scaffold builds everywhere.
+lhm-bridge = []
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
