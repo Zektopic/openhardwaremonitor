@@ -50,6 +50,13 @@ impl LhmBridge {
     pub fn spawn() -> Result<Self, String> {
         let exe = find_sidecar().ok_or_else(|| format!("{SIDECAR_EXE} not found"))?;
 
+        // Kill any stale sidecars first. Orphans from a previous crash keep the
+        // WinRing0 driver / AMD SMU open; a second instance then contends for it
+        // and the SMU-derived sensors (package/core power, effective clocks)
+        // read 0 while VIDs still work — exactly the "0 W / 0 MHz" symptom.
+        #[cfg(windows)]
+        kill_stale_sidecars();
+
         let mut cmd = Command::new(&exe);
         cmd.stdout(Stdio::piped()).stderr(Stdio::null());
         // So the sidecar can watch us and self-exit if we die (no orphans).
@@ -136,6 +143,23 @@ impl Drop for LhmBridge {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
+}
+
+/// Force-kill any leftover sidecar processes (orphans from a prior crash).
+/// When we run elevated this also clears elevated orphans that would otherwise
+/// hog the SMU and zero out power/clock sensors.
+#[cfg(windows)]
+fn kill_stale_sidecars() {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let _ = Command::new("taskkill")
+        .args(["/F", "/IM", SIDECAR_EXE])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    // Give the driver a moment to release before the fresh instance opens it.
+    std::thread::sleep(Duration::from_millis(300));
 }
 
 /// Locate the sidecar: next to our exe (packaged install), then the dev
