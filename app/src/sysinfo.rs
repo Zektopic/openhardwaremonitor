@@ -144,6 +144,63 @@ pub struct SystemInfo {
 /// Shared handle: `None` until the background query completes.
 pub type SystemInfoHandle = Arc<RwLock<Option<SystemInfo>>>;
 
+/// Whether this process is running elevated (`Some(true/false)` on Windows,
+/// `None` elsewhere). Reliable and independent of the sidecar — the sidecar is
+/// our child, so it inherits our elevation.
+pub fn is_elevated() -> Option<bool> {
+    #[cfg(windows)]
+    {
+        #[repr(C)]
+        struct TokenElevation {
+            token_is_elevated: u32,
+        }
+        const TOKEN_QUERY: u32 = 0x0008;
+        const TOKEN_ELEVATION_CLASS: i32 = 20; // TokenElevation
+
+        #[link(name = "advapi32")]
+        extern "system" {
+            fn OpenProcessToken(process: isize, desired: u32, handle: *mut isize) -> i32;
+            fn GetTokenInformation(
+                token: isize,
+                class: i32,
+                info: *mut core::ffi::c_void,
+                len: u32,
+                ret_len: *mut u32,
+            ) -> i32;
+        }
+        extern "system" {
+            fn GetCurrentProcess() -> isize;
+            fn CloseHandle(h: isize) -> i32;
+        }
+
+        unsafe {
+            let mut token: isize = 0;
+            if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+                return None;
+            }
+            let mut elevation = TokenElevation { token_is_elevated: 0 };
+            let mut ret_len = 0u32;
+            let ok = GetTokenInformation(
+                token,
+                TOKEN_ELEVATION_CLASS,
+                &mut elevation as *mut _ as *mut core::ffi::c_void,
+                core::mem::size_of::<TokenElevation>() as u32,
+                &mut ret_len,
+            );
+            CloseHandle(token);
+            if ok == 0 {
+                None
+            } else {
+                Some(elevation.token_is_elevated != 0)
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
 /// Kick off the (slow) WMI enumeration without blocking the UI.
 pub fn spawn_query() -> SystemInfoHandle {
     let handle: SystemInfoHandle = Arc::new(RwLock::new(None));

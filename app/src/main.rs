@@ -38,6 +38,7 @@ fn main() -> eframe::Result {
         windows: Arc::new(WindowFlags::default()),
         graphs: Arc::new(RwLock::new(std::collections::BTreeSet::new())),
         logger: Arc::new(Mutex::new(None)),
+        elevated: sysinfo::is_elevated(),
         started: Instant::now(),
     };
 

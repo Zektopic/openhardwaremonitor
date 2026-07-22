@@ -25,6 +25,9 @@ use crate::model::Hardware;
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct BridgeMeta {
     pub lhm_version: String,
+    /// Present in the JSON but unused — elevation is detected app-side
+    /// ([`crate::sysinfo::is_elevated`]), which is authoritative.
+    #[allow(dead_code)]
     pub is_elevated: bool,
     pub ring0_report: String,
 }
@@ -118,8 +121,11 @@ impl super::SensorSource for LhmBridge {
     fn diagnostics(&self) -> super::Diagnostics {
         let meta = self.meta.lock().ok().and_then(|m| m.clone()).unwrap_or_default();
         super::Diagnostics {
-            elevated: Some(meta.is_elevated),
-            engine_version: format!("LibreHardwareMonitor {}", meta.lhm_version),
+            engine_version: if meta.lhm_version.is_empty() {
+                String::new()
+            } else {
+                format!("LibreHardwareMonitor {}", meta.lhm_version)
+            },
             driver_report: meta.ring0_report,
         }
     }

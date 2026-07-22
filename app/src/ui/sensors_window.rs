@@ -22,15 +22,12 @@ pub fn show(ui: &mut egui::Ui, s: &Shared) {
     super::handle_close(ui, &s.windows.sensors);
     let pal = s.palette();
 
-    let (tree, diag) = s
-        .monitor
-        .lock()
-        .map(|m| (m.snapshot(), m.diagnostics()))
-        .unwrap_or_default();
+    let tree = s.monitor.lock().map(|m| m.snapshot()).unwrap_or_default();
 
     // Elevation warning banner — the zeros (SMU power, effective clocks,
-    // Tctl/Tdie, per-core temps) mean the app isn't elevated.
-    if diag.elevated == Some(false) {
+    // Tctl/Tdie, per-core temps) mean the app isn't elevated. Uses the app's
+    // own token (reliable), not the sidecar's self-report.
+    if s.elevated == Some(false) {
         egui::Panel::top("elev_warn")
             .frame(
                 egui::Frame::new()

@@ -18,8 +18,6 @@ use crate::model::Hardware;
 /// to explain why some sensors read zero.
 #[derive(Debug, Clone, Default)]
 pub struct Diagnostics {
-    /// Whether the sensor process is elevated (`None` = unknown / N/A).
-    pub elevated: Option<bool>,
     /// Sensor-engine version string.
     pub engine_version: String,
     /// Kernel-driver report (WinRing0 open/install status, blocklist errors).

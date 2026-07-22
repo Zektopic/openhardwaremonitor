@@ -158,6 +158,8 @@ fn driver_tab(ui: &mut egui::Ui, s: &Shared, pal: &Palette) {
         .lock()
         .map(|m| (m.source_name().to_string(), m.diagnostics()))
         .unwrap_or_default();
+    // App-token elevation is authoritative (independent of sidecar version).
+    let elevated = s.elevated;
 
     ui.add_space(6.0);
     ui.label(RichText::new("Sensor Engine").color(pal.accent).strong());
@@ -168,14 +170,14 @@ fn driver_tab(ui: &mut egui::Ui, s: &Shared, pal: &Palette) {
 
     // Elevation status badge.
     ui.add_space(4.0);
-    super::widgets::badge(ui, "Running as Administrator:", diag.elevated, pal);
+    super::widgets::badge(ui, "Running as Administrator:", elevated, pal);
 
     // Guidance depends on what's actually wrong.
     ui.add_space(6.0);
     let blocked = diag.driver_report.to_lowercase().contains("blocked")
         || diag.driver_report.to_lowercase().contains("not signed")
         || diag.driver_report.to_lowercase().contains("failed to load");
-    if diag.elevated == Some(false) {
+    if elevated == Some(false) {
         ui.label(
             RichText::new(
                 "⚠ Not elevated. CPU package/core power, effective clocks, Tctl/Tdie and \
@@ -197,7 +199,7 @@ fn driver_tab(ui: &mut egui::Ui, s: &Shared, pal: &Palette) {
             .color(pal.warn),
         );
         ui.hyperlink_to("Get PawnIO", "https://pawnio.eu/");
-    } else if diag.elevated == Some(true) {
+    } else if elevated == Some(true) {
         ui.label(
             RichText::new("✓ Elevated and the kernel driver is available — full sensor access.")
                 .size(11.0)

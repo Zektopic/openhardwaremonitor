@@ -52,6 +52,9 @@ pub struct Shared {
     pub graphs: Arc<RwLock<BTreeSet<String>>>,
     /// Active CSV logger (owned/written by the poll thread).
     pub logger: Arc<Mutex<Option<CsvLogger>>>,
+    /// Whether this process is elevated (Some) or unknown/N-A (None). Detected
+    /// in-process, so it's correct regardless of sidecar version.
+    pub elevated: Option<bool>,
     pub started: Instant,
 }
 
