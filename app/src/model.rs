@@ -7,35 +7,43 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Physical quantity a sensor reports. Comment shows the canonical unit, matching
-/// OHM's `SensorType` enum order exactly.
+/// Physical quantity a sensor reports. Comment shows the canonical unit.
+/// Superset of OHM's `SensorType`, extended with LibreHardwareMonitor's
+/// additional kinds so the LHM bridge can map 1:1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SensorType {
-    Voltage,    // V
-    Clock,      // MHz
-    Temperature, // °C
-    Load,       // %
-    Fan,        // RPM
-    Flow,       // L/h
-    Control,    // %
-    Level,      // %
-    Factor,     // 1
-    Power,      // W
-    Data,       // GB = 2^30 bytes
-    SmallData,  // MB = 2^20 bytes
-    Throughput, // MB/s = 2^20 bytes/s
+    Voltage,      // V
+    Current,      // A
+    Clock,        // MHz
+    Temperature,  // °C
+    Load,         // %
+    Frequency,    // Hz
+    Fan,          // RPM
+    Flow,         // L/h
+    Control,      // %
+    Level,        // %
+    Factor,       // 1
+    Power,        // W
+    Data,         // GB = 2^30 bytes
+    SmallData,    // MB = 2^20 bytes
+    Throughput,   // MB/s
+    TimeSpan,     // s
+    Energy,       // mWh
+    Noise,        // dBA
+    Conductivity, // µS/cm
+    Humidity,     // %
 }
 
 impl SensorType {
     /// Canonical display unit, as HWiNFO/OHM present it.
-    /// Used by report/CSV export (feature/ui-graphs-logging).
-    #[allow(dead_code)]
     pub fn unit(self) -> &'static str {
         match self {
             SensorType::Voltage => "V",
+            SensorType::Current => "A",
             SensorType::Clock => "MHz",
             SensorType::Temperature => "°C",
             SensorType::Load => "%",
+            SensorType::Frequency => "Hz",
             SensorType::Fan => "RPM",
             SensorType::Flow => "L/h",
             SensorType::Control => "%",
@@ -45,11 +53,17 @@ impl SensorType {
             SensorType::Data => "GB",
             SensorType::SmallData => "MB",
             SensorType::Throughput => "MB/s",
+            SensorType::TimeSpan => "s",
+            SensorType::Energy => "mWh",
+            SensorType::Noise => "dBA",
+            SensorType::Conductivity => "µS/cm",
+            SensorType::Humidity => "%",
         }
     }
 }
 
-/// Category of a hardware node. Mirrors OHM's `HardwareType` enum.
+/// Category of a hardware node. Superset of OHM's `HardwareType`, extended
+/// with LibreHardwareMonitor's categories so the LHM bridge can map 1:1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HardwareType {
     Mainboard,
@@ -58,9 +72,16 @@ pub enum HardwareType {
     Ram,
     GpuNvidia,
     GpuAti,
+    GpuIntel,
     TBalancer,
     Heatmaster,
     Hdd,
+    Storage,
+    Network,
+    Cooler,
+    EmbeddedController,
+    Psu,
+    Battery,
 }
 
 /// A single sensor reading with running statistics.

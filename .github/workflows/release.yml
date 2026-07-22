@@ -45,6 +45,10 @@ jobs:
         with:
           workspaces: app -> target
 
+      - name: Publish LHM bridge sidecar (Windows)
+        if: matrix.platform == 'windows-latest'
+        run: dotnet publish sidecar -c Release -o sidecar/publish
+
       - name: Run tests
         run: cargo test
 

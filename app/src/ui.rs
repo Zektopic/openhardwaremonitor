@@ -207,10 +207,12 @@ fn paint_row_bg(ui: &mut egui::Ui, color: Color32) {
 fn hardware_glyph(t: HardwareType) -> &'static str {
     match t {
         HardwareType::Cpu => "▣",
-        HardwareType::GpuNvidia | HardwareType::GpuAti => "▤",
+        HardwareType::GpuNvidia | HardwareType::GpuAti | HardwareType::GpuIntel => "▤",
         HardwareType::Ram => "▥",
-        HardwareType::Mainboard | HardwareType::SuperIO => "▦",
-        HardwareType::Hdd => "▧",
+        HardwareType::Mainboard | HardwareType::SuperIO | HardwareType::EmbeddedController => "▦",
+        HardwareType::Hdd | HardwareType::Storage => "▧",
+        HardwareType::Network => "▩",
+        HardwareType::Battery | HardwareType::Psu => "▪",
         _ => "▨",
     }
 }

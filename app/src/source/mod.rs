@@ -9,6 +9,8 @@
 //! - `native` — pure-Rust engine (feature/native-*).
 
 pub mod demo;
+#[cfg(windows)]
+pub mod lhm_bridge;
 
 use crate::model::Hardware;
 
@@ -27,8 +29,19 @@ pub trait SensorSource: Send {
 
 /// Pick the best available source for the current build/platform.
 ///
-/// Today this is always the demo source; feature/lhm-bridge makes this return
-/// the LHM bridge on Windows (falling back to demo if the sidecar is missing).
+/// Windows: the LibreHardwareMonitor bridge (full real sensors), falling back
+/// to the demo source if the sidecar is missing or fails. Other platforms (and
+/// `SENSORVIEW_SOURCE=demo`): the demo source, until the native engine lands.
 pub fn default_source() -> Box<dyn SensorSource> {
+    if std::env::var("SENSORVIEW_SOURCE").as_deref() == Ok("demo") {
+        return Box::new(demo::DemoSource::new());
+    }
+    #[cfg(windows)]
+    {
+        match lhm_bridge::LhmBridge::spawn() {
+            Ok(bridge) => return Box::new(bridge),
+            Err(e) => eprintln!("LHM bridge unavailable ({e}); falling back to demo data"),
+        }
+    }
     Box::new(demo::DemoSource::new())
 }
