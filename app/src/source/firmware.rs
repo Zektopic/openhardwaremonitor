@@ -88,6 +88,7 @@ pub fn acpi_header_regions(bytes: &[u8]) -> Vec<HexRegion> {
 }
 
 /// The 8-byte `RawSMBIOSData` header Windows prepends to the DMI blob.
+#[allow(dead_code)]
 pub fn smbios_header_regions(bytes: &[u8]) -> Vec<HexRegion> {
     if bytes.len() < 8 {
         return Vec::new();
