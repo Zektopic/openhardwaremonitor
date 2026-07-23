@@ -36,7 +36,8 @@ namespace OpenHardwareMonitor.Hardware {
         } else {
           return null;
         }
-      } catch {
+      } catch (Exception e) {
+        System.Diagnostics.Debug.WriteLine(e);
         return null;
       }
     }
