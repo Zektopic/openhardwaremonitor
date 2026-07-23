@@ -5,7 +5,6 @@ use eframe::egui::{self, Align2, Color32, FontId, Pos2, RichText, Stroke};
 
 use super::widgets::{self, format_value};
 use super::{Palette, Shared};
-use crate::model::{Hardware, Sensor};
 
 /// Draw the graph for `identifier`. Called from a deferred viewport.
 pub fn show(ui: &mut egui::Ui, s: &Shared, identifier: &str) {
@@ -17,9 +16,9 @@ pub fn show(ui: &mut egui::Ui, s: &Shared, identifier: &str) {
     }
 
     let pal = s.palette();
-    let tree = s.monitor.lock().map(|m| m.snapshot()).unwrap_or_default();
-    let history = s.monitor.lock().map(|m| m.history(identifier)).unwrap_or_default();
-    let sensor = find_sensor(&tree, identifier);
+    let frame = s.frame();
+    let history = s.store.history(identifier);
+    let sensor = frame.find_sensor(identifier).cloned();
 
     let name = sensor.as_ref().map(|s| s.name.clone()).unwrap_or_else(|| identifier.to_string());
     ui.ctx()
@@ -114,19 +113,3 @@ fn paint_chart(ui: &mut egui::Ui, history: &[f32], line: Color32, pal: &Palette)
     p.add(egui::Shape::line(pts, Stroke::new(1.5, line)));
 }
 
-fn find_sensor(tree: &[Hardware], identifier: &str) -> Option<Sensor> {
-    fn walk(tree: &[Hardware], id: &str) -> Option<Sensor> {
-        for hw in tree {
-            for s in &hw.sensors {
-                if s.identifier == id {
-                    return Some(s.clone());
-                }
-            }
-            if let Some(found) = walk(&hw.sub_hardware, id) {
-                return Some(found);
-            }
-        }
-        None
-    }
-    walk(tree, identifier)
-}

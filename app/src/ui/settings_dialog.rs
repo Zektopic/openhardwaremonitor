@@ -14,6 +14,7 @@ enum Tab {
     Safety,
     Smbus,
     Driver,
+    Remote,
     License,
 }
 
@@ -22,7 +23,7 @@ pub fn show(ui: &mut egui::Ui, s: &Shared) {
     let pal = s.palette();
 
     let tab_id = Id::new("settings_tab");
-    let mut tab: Tab = ui.ctx().data_mut(|d| *d.get_temp_mut_or(tab_id, Tab::General));
+    let mut tab: Tab = ui.ctx().data_mut(|d| *d.get_temp_mut_or(tab_id, default_tab()));
 
     // ---- Bottom OK / Cancel ---------------------------------------------
     egui::Panel::bottom("settings_buttons")
@@ -59,6 +60,7 @@ pub fn show(ui: &mut egui::Ui, s: &Shared) {
                     (Tab::Safety, "Safety"),
                     (Tab::Smbus, "SMBus / I2C"),
                     (Tab::Driver, "Driver Management"),
+                    (Tab::Remote, "Remote Access"),
                     (Tab::License, "License Management"),
                 ] {
                     let active = tab == t;
@@ -80,9 +82,24 @@ pub fn show(ui: &mut egui::Ui, s: &Shared) {
                 Tab::Safety => stub_tab(ui, &pal, "Safety options (watchdog, polling exclusions) arrive with the native sensor engine."),
                 Tab::Smbus => stub_tab(ui, &pal, "SMBus / I2C device scanning arrives with the native sensor engine (SPD, Super-I/O)."),
                 Tab::Driver => driver_tab(ui, s, &pal),
+                Tab::Remote => remote_tab(ui, s, &pal),
                 Tab::License => stub_tab(ui, &pal, "SensorView is open source — no license management needed."),
             }
         });
+}
+
+/// Which tab the dialog opens on. `SENSORVIEW_SETTINGS_TAB` is a dev/testing
+/// affordance (matching `SENSORVIEW_SHOW_SETTINGS`) so a tab that normally
+/// needs a click can be rendered from a script; unset, it is always General.
+fn default_tab() -> Tab {
+    match std::env::var("SENSORVIEW_SETTINGS_TAB").as_deref() {
+        Ok("safety") => Tab::Safety,
+        Ok("smbus") => Tab::Smbus,
+        Ok("driver") => Tab::Driver,
+        Ok("remote") => Tab::Remote,
+        Ok("license") => Tab::License,
+        _ => Tab::General,
+    }
 }
 
 fn general_tab(ui: &mut egui::Ui, s: &Shared, pal: &Palette) {
@@ -103,6 +120,20 @@ fn general_tab(ui: &mut egui::Ui, s: &Shared, pal: &Palette) {
         changed |= square_check(c, &mut st.flush_buffers_on_start, "Flush Buffers on Start", pal);
         changed |= square_check(c, &mut st.snapshot_cpu_polling, "Snapshot CPU Polling", pal);
         changed |= square_check(c, &mut st.shared_memory_support, "Shared Memory Support", pal);
+
+        c.add_space(8.0);
+        c.label(RichText::new("Sensor polling interval:").size(11.0).color(pal.text_dim));
+        let mut secs = st.poll_interval_ms as f32 / 1000.0;
+        // The floor is a hardware constraint, not taste: faster than ~250 ms and
+        // Super-I/O / SMBus reads start colliding with firmware access.
+        if c.add(egui::Slider::new(&mut secs, 0.25..=10.0).suffix(" s").fixed_decimals(2)).changed() {
+            st.poll_interval_ms = (secs * 1000.0) as u64;
+            // Takes effect on the next tick — no restart, no lock held.
+            s.command(crate::poll::Command::SetInterval(
+                std::time::Duration::from_millis(st.poll_interval_ms),
+            ));
+            changed = true;
+        }
 
         c.add_space(8.0);
         c.label(RichText::new("Language:").size(11.0).color(pal.text_dim));
@@ -152,12 +183,117 @@ fn general_tab(ui: &mut egui::Ui, s: &Shared, pal: &Palette) {
     }
 }
 
+/// "Remote Access" — the embedded dashboard's status and exposure controls.
+///
+/// The bind address and port are read when the server starts, so changes here
+/// are labelled as needing a restart rather than silently doing nothing.
+#[cfg(feature = "web")]
+fn remote_tab(ui: &mut egui::Ui, s: &Shared, pal: &Palette) {
+    ui.add_space(6.0);
+    ui.label(RichText::new("Web Dashboard").color(pal.accent).strong());
+
+    match (&s.web.url, &s.web.error) {
+        (Some(url), _) => {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Address:").size(11.5).color(pal.text_dim));
+                ui.hyperlink_to(RichText::new(url).size(11.5), url);
+            });
+            if s.web.lan {
+                ui.label(
+                    RichText::new(
+                        "Serving on all interfaces — replace 127.0.0.1 with this machine's \
+                         LAN address to open the dashboard from a phone or another PC.",
+                    )
+                    .size(11.0)
+                    .color(pal.text_dim),
+                );
+            } else {
+                ui.label(
+                    RichText::new("Loopback only — reachable from this machine.")
+                        .size(11.0)
+                        .color(pal.text_dim),
+                );
+            }
+        }
+        (None, Some(err)) => {
+            ui.label(RichText::new(format!("⚠ Not running: {err}")).size(11.5).color(pal.crit));
+        }
+        (None, None) => {
+            ui.label(RichText::new("Disabled.").size(11.5).color(pal.text_dim));
+        }
+    }
+
+    if let Some(token) = &s.web.token {
+        ui.add_space(6.0);
+        ui.label(RichText::new("Access token").color(pal.accent).strong());
+        ui.label(
+            RichText::new(
+                "Required because the dashboard is exposed on the network. It is generated \
+                 per run and never stored, so restarting invalidates it.",
+            )
+            .size(11.0)
+            .color(pal.text_dim),
+        );
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(token).size(11.5).monospace().color(pal.value));
+            if ui.button(RichText::new("Copy").size(11.0)).clicked() {
+                ui.ctx().copy_text(token.clone());
+            }
+        });
+    }
+
+    ui.add_space(10.0);
+    ui.separator();
+    ui.add_space(6.0);
+
+    let Ok(mut st) = s.settings.write() else { return };
+    let mut changed = false;
+    changed |= square_check(ui, &mut st.web_enabled, "Enable web dashboard", pal);
+    changed |= square_check(
+        ui,
+        &mut st.web_lan_access,
+        "Allow access from other devices on the network",
+        pal,
+    );
+    if st.web_lan_access {
+        ui.label(
+            RichText::new(
+                "⚠ The dashboard exposes sensor readings, drive serial numbers and raw \
+                 SPD / PCI configuration dumps. Anyone with the token and network access \
+                 can read them.",
+            )
+            .size(11.0)
+            .color(pal.warn),
+        );
+    }
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Port:").size(11.0).color(pal.text_dim));
+        let mut port = st.web_port;
+        if ui.add(egui::DragValue::new(&mut port).range(1024..=65535)).changed() {
+            st.web_port = port;
+            changed = true;
+        }
+    });
+    ui.label(
+        RichText::new("Changes to network access and port take effect on the next start.")
+            .size(11.0)
+            .color(pal.text_dim),
+    );
+
+    if changed {
+        st.save();
+    }
+}
+
+/// Without the `web` feature there is no server to configure.
+#[cfg(not(feature = "web"))]
+fn remote_tab(ui: &mut egui::Ui, _s: &Shared, pal: &Palette) {
+    stub_tab(ui, pal, "This build was compiled without the web dashboard.");
+}
+
 fn driver_tab(ui: &mut egui::Ui, s: &Shared, pal: &Palette) {
-    let (source, diag) = s
-        .monitor
-        .lock()
-        .map(|m| (m.source_name().to_string(), m.diagnostics()))
-        .unwrap_or_default();
+    let frame = s.frame();
+    let (source, diag) = (frame.source.clone(), frame.diagnostics.clone());
     // App-token elevation is authoritative (independent of sidecar version).
     let elevated = s.elevated;
 

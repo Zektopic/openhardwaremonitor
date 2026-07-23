@@ -9,14 +9,18 @@
 //! - `native` — pure-Rust engine (feature/native-*).
 
 pub mod demo;
+pub mod firmware;
 #[cfg(windows)]
 pub mod lhm_bridge;
+
+use serde::{Deserialize, Serialize};
 
 use crate::model::Hardware;
 
 /// Backend health/driver diagnostics, surfaced in Settings → Driver Management
-/// to explain why some sensors read zero.
-#[derive(Debug, Clone, Default)]
+/// to explain why some sensors read zero. Serialized into the telemetry frame
+/// so the web dashboard can show the same explanation as the native UI.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Diagnostics {
     /// Sensor-engine version string.
     pub engine_version: String,

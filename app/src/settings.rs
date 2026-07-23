@@ -44,6 +44,16 @@ pub struct AppSettings {
     pub language: String,
     // Polling.
     pub poll_interval_ms: u64,
+    /// Slow lane: S.M.A.R.T., SPD and PCIe topology. Kept far slower than the
+    /// sensor cadence on purpose — see `poll.rs`.
+    pub inventory_interval_s: u64,
+    // Embedded web dashboard.
+    pub web_enabled: bool,
+    /// Serve to other machines on the network. Off by default: the dashboard
+    /// exposes drive serials and raw SPD/PCI dumps. Turning this on makes the
+    /// access token mandatory.
+    pub web_lan_access: bool,
+    pub web_port: u16,
     // UI state carried across runs.
     pub collapsed_groups: BTreeSet<String>,
 }
@@ -72,6 +82,10 @@ impl Default for AppSettings {
             color_mode: ColorMode::Black,
             language: "English".to_string(),
             poll_interval_ms: 1000,
+            inventory_interval_s: 30,
+            web_enabled: true,
+            web_lan_access: false,
+            web_port: 8080,
             collapsed_groups: BTreeSet::new(),
         }
     }

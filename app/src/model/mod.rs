@@ -5,12 +5,17 @@
 //! same vocabulary regardless of which [`crate::source::SensorSource`] backend
 //! (LHM bridge or native Rust) produced the data.
 
+pub mod hexblob;
+pub mod storage;
+pub mod topology;
+
 use serde::{Deserialize, Serialize};
 
 /// Physical quantity a sensor reports. Comment shows the canonical unit.
 /// Superset of OHM's `SensorType`, extended with LibreHardwareMonitor's
 /// additional kinds so the LHM bridge can map 1:1.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+// `Ord` so metrics and grouped views can iterate types in a stable order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum SensorType {
     Voltage,      // V
     Current,      // A

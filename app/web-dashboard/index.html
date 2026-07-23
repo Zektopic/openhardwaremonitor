@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>SensorView — Telemetry</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <span class="brand">SensorView</span>
+      <span class="sep">/</span>
+      <span id="host" class="dim">—</span>
+      <span class="spacer"></span>
+      <span id="stats" class="dim"></span>
+      <!-- The SPA opens /ws/telemetry; see app.js -->
+      <span id="status" class="status offline">offline</span>
+    </header>
+
+    <main id="root">
+      <p class="empty">Waiting for the first telemetry frame…</p>
+    </main>
+
+    <footer class="bar">
+      <span id="engine" class="dim"></span>
+      <span class="spacer"></span>
+      <span id="seq" class="dim"></span>
+    </footer>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

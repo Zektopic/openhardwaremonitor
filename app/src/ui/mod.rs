@@ -2,6 +2,7 @@
 //! System Summary, Settings), shared palette/theme, fonts and shared state.
 
 pub mod graph_window;
+pub mod hex_window;
 pub mod main_window;
 pub mod sensors_window;
 pub mod settings_dialog;
@@ -16,8 +17,9 @@ use std::time::Instant;
 use eframe::egui::{self, Color32};
 
 use crate::logging::CsvLogger;
-use crate::poll::Monitor;
+use crate::poll::Command;
 use crate::settings::{AppSettings, ColorMode};
+use crate::state::{TelemetryFrame, TelemetryStore};
 use crate::sysinfo::SystemInfoHandle;
 
 // ---- Which extra windows are open (shared with deferred viewports) ------
@@ -27,6 +29,7 @@ pub struct WindowFlags {
     pub sensors: AtomicBool,
     pub summary: AtomicBool,
     pub settings: AtomicBool,
+    pub hex: AtomicBool,
 }
 
 impl WindowFlags {
@@ -41,10 +44,24 @@ impl WindowFlags {
     }
 }
 
+/// Where the LAN dashboard is reachable, for display in the UI.
+#[cfg(feature = "web")]
+pub struct WebStatus {
+    pub url: Option<String>,
+    /// Present only when the server is LAN-exposed and therefore token-gated.
+    pub token: Option<String>,
+    pub error: Option<String>,
+    pub lan: bool,
+}
+
 /// Everything a viewport callback needs. Cheap to clone (all Arcs).
 #[derive(Clone)]
 pub struct Shared {
-    pub monitor: Arc<Mutex<Monitor>>,
+    /// Latest telemetry. Read lock-free — the UI never blocks the poller.
+    pub store: Arc<TelemetryStore>,
+    /// Mutations are *sent* to the poll thread rather than applied under a
+    /// shared lock, so the render loop never contends with polling.
+    pub commands: std::sync::mpsc::Sender<Command>,
     pub settings: Arc<RwLock<AppSettings>>,
     pub sysinfo: SystemInfoHandle,
     pub windows: Arc<WindowFlags>,
@@ -56,9 +73,23 @@ pub struct Shared {
     /// in-process, so it's correct regardless of sidecar version.
     pub elevated: Option<bool>,
     pub started: Instant,
+    #[cfg(feature = "web")]
+    pub web: Arc<WebStatus>,
 }
 
 impl Shared {
+    /// The latest telemetry frame. An atomic pointer read — cheap enough to
+    /// call once per window per frame, unlike the deep tree clone it replaced.
+    pub fn frame(&self) -> Arc<TelemetryFrame> {
+        self.store.load()
+    }
+
+    /// Send a command to the poll thread. Failure means the poller has already
+    /// stopped, which only happens during shutdown.
+    pub fn command(&self, cmd: Command) {
+        let _ = self.commands.send(cmd);
+    }
+
     pub fn color_mode(&self) -> ColorMode {
         self.settings.read().map(|s| s.color_mode).unwrap_or(ColorMode::Black)
     }
@@ -177,21 +208,39 @@ pub fn apply_theme(ctx: &egui::Context, pal: &Palette, light: bool) {
     });
 }
 
-/// Load Segoe UI from the Windows fonts dir for HWiNFO-faithful text.
-/// Silently keeps egui's default fonts when unavailable (non-Windows, CI).
+/// Load Segoe UI for HWiNFO-faithful proportional text, and a real monospace
+/// face for the hex dump. Silently keeps egui's defaults when unavailable
+/// (non-Windows, CI).
 pub fn install_fonts(ctx: &egui::Context) {
-    let candidates = [r"C:\Windows\Fonts\segoeui.ttf"];
-    let Some(bytes) = candidates.iter().find_map(|p| std::fs::read(p).ok()) else {
-        return;
-    };
     let mut fonts = egui::FontDefinitions::default();
-    fonts
-        .font_data
-        .insert("segoe".into(), Arc::new(egui::FontData::from_owned(bytes)));
-    if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
-        family.insert(0, "segoe".into());
+    let mut changed = false;
+
+    if let Ok(bytes) = std::fs::read(r"C:\Windows\Fonts\segoeui.ttf") {
+        fonts
+            .font_data
+            .insert("segoe".into(), Arc::new(egui::FontData::from_owned(bytes)));
+        if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
+            family.insert(0, "segoe".into());
+        }
+        changed = true;
     }
-    ctx.set_fonts(fonts);
+
+    // Cascadia Mono ships with Windows 11; Consolas is the older fallback.
+    // Both align hex columns far better than egui's bundled face.
+    let mono = [r"C:\Windows\Fonts\CascadiaMono.ttf", r"C:\Windows\Fonts\consola.ttf"];
+    if let Some(bytes) = mono.iter().find_map(|p| std::fs::read(p).ok()) {
+        fonts
+            .font_data
+            .insert("mono".into(), Arc::new(egui::FontData::from_owned(bytes)));
+        if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
+            family.insert(0, "mono".into());
+        }
+        changed = true;
+    }
+
+    if changed {
+        ctx.set_fonts(fonts);
+    }
 }
 
 // ---- Viewport registration ---------------------------------------------
@@ -219,6 +268,18 @@ pub fn show_open_viewports(ctx: &egui::Context, shared: &Shared) {
                 .with_inner_size([900.0, 640.0])
                 .with_min_inner_size([700.0, 500.0]),
             move |ui, _class| summary_window::show(ui, &s),
+        );
+    }
+    if WindowFlags::is_open(&shared.windows.hex) {
+        let s = shared.clone();
+        ctx.show_viewport_deferred(
+            egui::ViewportId::from_hash_of("hex"),
+            egui::ViewportBuilder::default()
+                .with_title("Hex Viewer")
+                // Wide enough for offset + 16 bytes + ASCII without wrapping.
+                .with_inner_size([900.0, 620.0])
+                .with_min_inner_size([700.0, 320.0]),
+            move |ui, _class| hex_window::show(ui, &s),
         );
     }
     if WindowFlags::is_open(&shared.windows.settings) {

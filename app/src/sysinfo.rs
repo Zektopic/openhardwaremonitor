@@ -7,7 +7,7 @@
 
 use std::sync::{Arc, RwLock};
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, serde::Serialize)]
 pub struct CpuInfo {
     pub name: String,
     pub cores: Option<u32>,
@@ -82,7 +82,7 @@ fn codename_for(vendor: &str, family: u32, model: u32) -> String {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, serde::Serialize)]
 pub struct BoardInfo {
     pub product: String,
     pub manufacturer: String,
@@ -90,7 +90,7 @@ pub struct BoardInfo {
     pub bios_date: String,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, serde::Serialize)]
 pub struct MemoryModule {
     pub bank: String,
     pub manufacturer: String,
@@ -102,7 +102,7 @@ pub struct MemoryModule {
     pub memory_type: String,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, serde::Serialize)]
 pub struct GpuInfo {
     pub name: String,
     /// WMI AdapterRAM (u32, capped at 4 GB) — kept for the native engine to
@@ -112,14 +112,14 @@ pub struct GpuInfo {
     pub driver_version: String,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, serde::Serialize)]
 pub struct DriveInfo {
     pub model: String,
     pub interface: String,
     pub size_gb: Option<f64>,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, serde::Serialize)]
 pub struct OsInfo {
     pub caption: String,
     pub build: String,
@@ -128,7 +128,7 @@ pub struct OsInfo {
     pub secure_boot: Option<bool>,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, serde::Serialize)]
 pub struct SystemInfo {
     pub computer_name: String,
     pub user_name: String,

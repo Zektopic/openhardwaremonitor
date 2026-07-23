@@ -54,6 +54,18 @@ jobs:
       - name: Run tests
         run: cargo test
 
+      # The web tier's correctness argument rests on never holding a lock guard
+      # across an await; make that a build failure rather than a review habit.
+      - name: Clippy
+        run: |
+          rustup component add clippy
+          cargo clippy --all-targets -- -D warnings -D clippy::await_holding_lock
+
+      # The GUI-only configuration must keep building: it is what a user gets
+      # when they don't want a listening socket at all.
+      - name: Check without the web tier
+        run: cargo check --no-default-features --all-targets
+
       - name: Build (release)
         run: cargo build --release
 
