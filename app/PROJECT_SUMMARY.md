@@ -293,13 +293,25 @@ file is **not yet written**.
 1. **macOS `.dmg` CI leg fails** at the "Package installers" step. Windows and Linux pass. Exact
    error unread (GitHub's logs API returns 403 unauthenticated; the repo is public so job/step
    *status* is readable but log text is not — needs `gh auth login`).
-2. **0 W / 0 MHz CPU power & effective-clock sensors on the dev machine.** Root cause is
-   **environmental, not a code bug**: `VulnerableDriverBlocklistEnable = 1` on Windows 11 blocks
-   LHM's classic **WinRing0** driver. VIDs (MSR-less) still read fine; anything SMU/MSR-derived
-   reads 0. **Fix is user-side: install PawnIO** (signed, blocklist-clean; LHM 0.9.6 supports it)
-   from https://pawnio.eu/. Kernel-driver installation is deliberately left as a user action — the
-   app's job is precise diagnosis + guidance, which the `DriverBlocked` banner provides.
+2. **CPU power reads 0 W and the per-core clocks report no value.** Environmental, not a code bug.
+   Two independent blockers are both active on the dev machine — confirmed by registry/CIM query
+   and by HWiNFO's own manual (`C:\Program Files\HWiNFO64\HWiNFO Manual.pdf`, §10.5):
+
+   | Blocker | Measured state | Breaks | Fix (user-side, needs elevation + reboot) |
+   | --- | --- | --- | --- |
+   | Vulnerable-driver blocklist | `VulnerableDriverBlocklistEnable = 1` | WinRing0 → all SMU/MSR power | Install **PawnIO** (signed, blocklist-clean; LHM 0.9.6 supports it) — https://pawnio.eu/ |
+   | Virtualization-Based Security | `VirtualizationBasedSecurityStatus = 2` (running) even with Memory Integrity **off** (`HVCI Enabled = 0`) | BCLK reads → every ratio×BCLK clock | Manual §10.5: turning off Memory Integrity is often *not* enough; also disable **Virtual Machine Platform** and **Windows Hypervisor Platform** |
+
+   Kernel-driver installs and security-feature changes are deliberately left to the user; the app's
+   job is precise diagnosis, which the `DriverBlocked` banner provides.
    *Ruled out:* orphaned sidecars (a clean relaunch still showed 0).
+
+   **This escalated into a total sensor outage** (fixed in `3ecb6ca`): with BCLK unavailable, LHM
+   returned NaN/Infinity for the 8 per-core Clock and 8 per-core Factor sensors, and
+   `System.Text.Json` throws rather than serialize non-finite floats — so the sidecar died with
+   `0xE0434352` on its first snapshot and the app silently fell back to demo data. The sidecar now
+   maps non-finite readings to `null` and survives a bad tick. Result: 151 sensors across 12
+   devices read correctly; the 17 blocked ones report "no value" instead of taking everything down.
 3. Per-core temps / TDP that LHM genuinely does not expose on Zen 4 remain absent until a native
    sensor engine exists.
 4. "All CPU cores at 100 %" was investigated and is **not a bug** — PDH counters confirmed a real
