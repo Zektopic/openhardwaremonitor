@@ -4,4 +4,6 @@ TARGETTYPE=DRIVER
 
 INCLUDES=..\
 
+TARGETLIBS=$(DDK_LIB_PATH)\wdmsec.lib
+
 SOURCES=OpenLibSys.c OpenLibSys.rc
