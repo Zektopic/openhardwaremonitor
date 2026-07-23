@@ -105,8 +105,19 @@ namespace OxyPlot.Reporting
 
             foreach (var pi in type.GetProperties())
             {
-                // TODO: support Browsable and Displayname attributes
+                var browsableAttributes = pi.GetCustomAttributes(typeof(BrowsableAttribute), true);
+                if (browsableAttributes.Length > 0 && !((BrowsableAttribute)browsableAttributes[0]).Browsable)
+                {
+                    continue;
+                }
+
                 var header = pi.Name;
+                var displayNameAttributes = pi.GetCustomAttributes(typeof(DisplayNameAttribute), true);
+                if (displayNameAttributes.Length > 0)
+                {
+                    header = ((DisplayNameAttribute)displayNameAttributes[0]).DisplayName;
+                }
+
                 this.Fields.Add(new ItemsTableField(header, pi.Name, null, Alignment.Left));
             }
         }
