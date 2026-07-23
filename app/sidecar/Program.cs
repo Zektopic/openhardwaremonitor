@@ -94,6 +94,13 @@ while (true)
     {
         break; // parent gone → exit
     }
+    catch (Exception ex)
+    {
+        // One bad snapshot must not take the process down: the app would lose
+        // every sensor and silently fall back to demo data. Report it and keep
+        // polling — the next tick is usually fine.
+        Console.Error.WriteLine($"snapshot skipped: {ex.Message}");
+    }
     Thread.Sleep(1000);
 }
 
@@ -149,12 +156,23 @@ static Dictionary<string, object?> MapSensor(ISensor s)
         ["name"] = s.Name,
         ["type"] = s.SensorType.ToString(), // LHM names match the Rust enum 1:1
         ["index"] = s.Index,
-        ["value"] = s.Value,
+        ["value"] = Finite(s.Value),
         ["min"] = (float?)null, // running stats are tracked on the Rust side
         ["max"] = (float?)null,
         ["avg"] = (float?)null,
     };
 }
+
+/// <summary>
+/// Drop non-finite readings.
+///
+/// LHM occasionally yields NaN or ±Infinity — a rate computed over a zero time
+/// delta, a divide by a missing denominator. System.Text.Json refuses to write
+/// those and throws, which killed the whole sidecar mid-snapshot and left the
+/// app with no sensors at all. A non-finite reading isn't a reading, so report
+/// it as null, which the Rust model already expresses as Option&lt;f32&gt;::None.
+/// </summary>
+static float? Finite(float? v) => v.HasValue && float.IsFinite(v.Value) ? v : null;
 
 // Rust model.rs HardwareType variant names (LHM names differ slightly).
 static string MapHardwareType(HardwareType t) => t switch
