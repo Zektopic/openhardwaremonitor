@@ -275,11 +275,26 @@ namespace OpenHardwareMonitor.Utilities {
 
     private static void ReturnFile(HttpListenerContext context, string filePath) 
     {
+      string rootPath = AppDomain.CurrentDomain.BaseDirectory;
+      string rootDir = Path.GetFullPath(rootPath);
+      if (!rootDir.EndsWith(Path.DirectorySeparatorChar.ToString()))
+      {
+          rootDir += Path.DirectorySeparatorChar;
+      }
+
+      string fullPath = Path.GetFullPath(Path.Combine(rootDir, filePath));
+      if (!fullPath.StartsWith(rootDir, StringComparison.OrdinalIgnoreCase))
+      {
+          context.Response.StatusCode = 403;
+          context.Response.Close();
+          return;
+      }
+
       context.Response.ContentType = 
-        GetcontentType(Path.GetExtension(filePath));
+        GetcontentType(Path.GetExtension(fullPath));
       const int bufferSize = 1024 * 512; //512KB
       var buffer = new byte[bufferSize];
-      using (var fs = File.OpenRead(filePath)) {
+      using (var fs = File.OpenRead(fullPath)) {
 
         context.Response.ContentLength64 = fs.Length;
         int read;
