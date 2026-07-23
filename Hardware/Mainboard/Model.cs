@@ -10,7 +10,7 @@
 
 namespace OpenHardwareMonitor.Hardware.Mainboard {
 
-  internal enum Model {
+  public enum Model {
     // ASRock
     _880GMH_USB3,
     AOD790GX_128M,
