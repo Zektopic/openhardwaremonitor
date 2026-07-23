@@ -1,0 +1,124 @@
+/* Dense terminal aesthetic, matching the native UI's dark palette. */
+:root {
+  --bg: #121212;
+  --panel: #1b1b1b;
+  --header: #262628;
+  --row-a: #1a1a1a;
+  --row-b: #141414;
+  --grid: #383838;
+  --text: #e6e6e6;
+  --dim: #9a9a9a;
+  --accent: #4fa3ff;
+  --warn: #e8c050;
+  --crit: #f14c4c;
+  --ok: #30a040;
+  --volt: #f0d030;
+  --clock: #60c8f0;
+  --temp: #f08060;
+  --fan: #80d080;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 12px/1.45 "Cascadia Mono", "JetBrains Mono", Consolas, "SF Mono", ui-monospace, monospace;
+}
+
+body { display: flex; flex-direction: column; }
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--header);
+  border-bottom: 1px solid var(--grid);
+  flex: 0 0 auto;
+}
+footer.bar { border-bottom: 0; border-top: 1px solid var(--grid); }
+
+.brand { color: var(--accent); font-weight: 700; letter-spacing: 0.5px; }
+.sep { color: var(--grid); }
+.dim { color: var(--dim); }
+.spacer { flex: 1 1 auto; }
+
+.status {
+  padding: 1px 8px;
+  border-radius: 2px;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+.status.online { background: var(--ok); color: #06180a; }
+.status.offline { background: var(--crit); color: #1c0505; }
+.status.connecting { background: var(--warn); color: #1c1505; }
+
+main {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 10px;
+  /* Dense multi-column flow, like the native Sensors window. */
+  column-width: 380px;
+  column-gap: 10px;
+}
+
+.empty { color: var(--dim); }
+
+.group {
+  background: var(--panel);
+  border: 1px solid var(--grid);
+  border-radius: 3px;
+  margin: 0 0 10px;
+  break-inside: avoid;
+  overflow: hidden;
+}
+
+.group > h2 {
+  margin: 0;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--header);
+  border-bottom: 1px solid var(--grid);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+table { width: 100%; border-collapse: collapse; }
+tr:nth-child(odd) { background: var(--row-b); }
+tr:nth-child(even) { background: var(--row-a); }
+
+td {
+  padding: 1px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+td.name { max-width: 0; width: 55%; }
+td.value { text-align: right; font-variant-numeric: tabular-nums; width: 25%; }
+td.spark { width: 20%; padding: 0 8px 0 0; }
+
+.unit { color: var(--dim); margin-left: 3px; font-size: 10px; }
+
+.t-Temperature { color: var(--temp); }
+.t-Voltage     { color: var(--volt); }
+.t-Clock       { color: var(--clock); }
+.t-Fan         { color: var(--fan); }
+.t-Power       { color: var(--warn); }
+
+canvas.sparkline { display: block; width: 100%; height: 14px; }
+
+.banner {
+  background: #2a1d05;
+  border: 1px solid var(--warn);
+  color: var(--warn);
+  padding: 6px 10px;
+  margin: 0 0 10px;
+  border-radius: 3px;
+}

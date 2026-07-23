@@ -4,18 +4,49 @@ version = "0.1.0"
 description = "SensorView — a HWiNFO-style native hardware monitor"
 authors = ["SensorView contributors"]
 edition = "2021"
-rust-version = "1.77"
+# Was "1.77", which was stale (egui 0.35 already needed more) and silently
+# downgraded new deps during resolution — cargo honors rust-version when
+# picking versions, so egui_tiles resolved to 0.10 (egui 0.30) instead of 0.16.
+rust-version = "1.92"
 
 [dependencies]
 eframe = "0.35"
 egui_extras = "0.35"
+egui_tiles = { version = "0.16", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 image = { version = "0.25", default-features = false, features = ["png"] }
 dirs = "6"
+# Lock-free publish/subscribe of the latest telemetry frame (see src/state.rs).
+arc-swap = "1.9"
+
+# --- Thread 3: embedded web server (optional, on by default) ---------------
+axum = { version = "0.8", features = ["ws"], optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "net", "time", "macros"], optional = true }
+tower-http = { version = "0.6", features = ["compression-gzip", "set-header"], optional = true }
+rust-embed = { version = "8", optional = true }
+mime_guess = { version = "2", optional = true }
+rand = { version = "0.9", optional = true }
+# Only for StreamExt/SinkExt when splitting a WebSocket into read + write
+# halves — tokio::select! can't borrow the socket mutably twice.
+futures-util = { version = "0.3", default-features = false, optional = true }
 
 [target.'cfg(windows)'.dependencies]
 wmi = "0.18"
+
+[features]
+default = ["web"]
+# The LAN dashboard tier. Compiling without it drops tokio/axum entirely and
+# yields a pure-GUI binary.
+web = [
+    "dep:axum",
+    "dep:tokio",
+    "dep:tower-http",
+    "dep:rust-embed",
+    "dep:mime_guess",
+    "dep:rand",
+    "dep:futures-util",
+]
 
 [build-dependencies]
 winresource = "0.1"

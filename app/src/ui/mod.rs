@@ -16,8 +16,9 @@ use std::time::Instant;
 use eframe::egui::{self, Color32};
 
 use crate::logging::CsvLogger;
-use crate::poll::Monitor;
+use crate::poll::Command;
 use crate::settings::{AppSettings, ColorMode};
+use crate::state::{TelemetryFrame, TelemetryStore};
 use crate::sysinfo::SystemInfoHandle;
 
 // ---- Which extra windows are open (shared with deferred viewports) ------
@@ -41,10 +42,24 @@ impl WindowFlags {
     }
 }
 
+/// Where the LAN dashboard is reachable, for display in the UI.
+#[cfg(feature = "web")]
+pub struct WebStatus {
+    pub url: Option<String>,
+    /// Present only when the server is LAN-exposed and therefore token-gated.
+    pub token: Option<String>,
+    pub error: Option<String>,
+    pub lan: bool,
+}
+
 /// Everything a viewport callback needs. Cheap to clone (all Arcs).
 #[derive(Clone)]
 pub struct Shared {
-    pub monitor: Arc<Mutex<Monitor>>,
+    /// Latest telemetry. Read lock-free — the UI never blocks the poller.
+    pub store: Arc<TelemetryStore>,
+    /// Mutations are *sent* to the poll thread rather than applied under a
+    /// shared lock, so the render loop never contends with polling.
+    pub commands: std::sync::mpsc::Sender<Command>,
     pub settings: Arc<RwLock<AppSettings>>,
     pub sysinfo: SystemInfoHandle,
     pub windows: Arc<WindowFlags>,
@@ -56,9 +71,23 @@ pub struct Shared {
     /// in-process, so it's correct regardless of sidecar version.
     pub elevated: Option<bool>,
     pub started: Instant,
+    #[cfg(feature = "web")]
+    pub web: Arc<WebStatus>,
 }
 
 impl Shared {
+    /// The latest telemetry frame. An atomic pointer read — cheap enough to
+    /// call once per window per frame, unlike the deep tree clone it replaced.
+    pub fn frame(&self) -> Arc<TelemetryFrame> {
+        self.store.load()
+    }
+
+    /// Send a command to the poll thread. Failure means the poller has already
+    /// stopped, which only happens during shutdown.
+    pub fn command(&self, cmd: Command) {
+        let _ = self.commands.send(cmd);
+    }
+
     pub fn color_mode(&self) -> ColorMode {
         self.settings.read().map(|s| s.color_mode).unwrap_or(ColorMode::Black)
     }

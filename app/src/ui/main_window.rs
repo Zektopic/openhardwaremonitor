@@ -42,9 +42,9 @@ pub fn show(ui: &mut egui::Ui, s: &Shared, state: &mut MainWindowState) {
                     WindowFlags::open(&s.windows.summary);
                 }
                 if tool_button(ui, "💾", "Save Report", &pal) {
-                    let tree = s.monitor.lock().map(|m| m.snapshot()).unwrap_or_default();
+                    let frame = s.frame();
                     let info = s.sysinfo.read().ok().and_then(|i| i.clone());
-                    match crate::report::write_report(&tree, info.as_ref()) {
+                    match crate::report::write_report(&frame.tree, info.as_ref()) {
                         Ok(p) => state.last_report = Some(format!("Report saved: {}", p.display())),
                         Err(e) => state.last_report = Some(format!("Report failed: {e}")),
                     }
@@ -81,6 +81,40 @@ pub fn show(ui: &mut egui::Ui, s: &Shared, state: &mut MainWindowState) {
                 if let Some(msg) = &state.last_report {
                     ui.separator();
                     ui.label(RichText::new(msg).color(pal.text_dim).size(11.0));
+                }
+                ui.separator();
+                ui.label(
+                    RichText::new(format!("{} sensors", s.frame().sensor_count()))
+                        .color(pal.text_dim)
+                        .size(11.0),
+                );
+                // Make the dashboard discoverable without digging through
+                // Settings — it's the whole point of the LAN tier.
+                // A failed bind (port already in use) must not be silent — the
+                // dashboard would simply never appear.
+                #[cfg(feature = "web")]
+                if let Some(err) = &s.web.error {
+                    ui.separator();
+                    ui.label(RichText::new("🌐 Dashboard unavailable").color(pal.warn).size(11.0))
+                        .on_hover_text(format!(
+                            "{err}
+
+Change the port in Settings → Remote Access,                              or set SENSORVIEW_WEB_PORT."
+                        ));
+                }
+                #[cfg(feature = "web")]
+                if let Some(url) = &s.web.url {
+                    ui.separator();
+                    ui.hyperlink_to(RichText::new("🌐 Dashboard").size(11.0), url)
+                        .on_hover_text(url);
+                    let clients = s.store.subscriber_count();
+                    if clients > 0 {
+                        ui.label(
+                            RichText::new(format!("({clients} connected)"))
+                                .color(pal.ok_badge)
+                                .size(11.0),
+                        );
+                    }
                 }
             });
         });
@@ -291,8 +325,8 @@ fn feature_pane(
         }
         Selection::Network => {
             ui.label(RichText::new("Network").color(pal.accent).strong().size(12.0));
-            let tree = s.monitor.lock().map(|m| m.snapshot()).unwrap_or_default();
-            for hw in &tree {
+            let frame = s.frame();
+            for hw in &frame.tree {
                 if hw.hardware_type == crate::model::HardwareType::Network {
                     info_row(ui, "Adapter:", &hw.name, pal);
                 }

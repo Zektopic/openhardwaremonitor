@@ -12,7 +12,8 @@ pub fn show(ui: &mut egui::Ui, s: &Shared) {
     super::handle_close(ui, &s.windows.summary);
     let pal = s.palette();
     let info = s.sysinfo.read().ok().and_then(|i| i.clone());
-    let tree = s.monitor.lock().map(|m| m.snapshot()).unwrap_or_default();
+    let frame = s.frame();
+    let tree = &frame.tree;
 
     egui::CentralPanel::default()
         .frame(
@@ -29,11 +30,11 @@ pub fn show(ui: &mut egui::Ui, s: &Shared) {
 
                 ui.columns(3, |cols| {
                     // ---- CPU ------------------------------------------------
-                    cpu_panel(&mut cols[0], &i, &tree, &pal);
+                    cpu_panel(&mut cols[0], &i, tree, &pal);
                     // ---- Motherboard + Memory ------------------------------
                     board_memory_panels(&mut cols[1], &i, &pal);
                     // ---- GPU + OS + Drives ---------------------------------
-                    gpu_os_drives_panels(&mut cols[2], &i, &tree, &pal);
+                    gpu_os_drives_panels(&mut cols[2], &i, tree, &pal);
                 });
             });
         });

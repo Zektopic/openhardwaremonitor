@@ -22,13 +22,14 @@ pub fn show(ui: &mut egui::Ui, s: &Shared) {
     super::handle_close(ui, &s.windows.sensors);
     let pal = s.palette();
 
-    let tree = s.monitor.lock().map(|m| m.snapshot()).unwrap_or_default();
+    let frame = s.frame();
+    let tree = &frame.tree;
 
     // Diagnostic banner for the "0 W / 0 MHz" case.
     let warmed_up = s.started.elapsed().as_secs() >= 4;
     let banner = if s.elevated == Some(false) {
         Some(Banner::NotElevated)
-    } else if warmed_up && driver_appears_blocked(&tree) {
+    } else if warmed_up && driver_appears_blocked(tree) {
         Some(Banner::DriverBlocked)
     } else {
         None
@@ -77,7 +78,7 @@ pub fn show(ui: &mut egui::Ui, s: &Shared) {
     }
 
     // Own CPU load → window title, like HWiNFO's "(0.9%)".
-    let cpu_load = find_cpu_load(&tree);
+    let cpu_load = find_cpu_load(tree);
     let title = match cpu_load {
         Some(l) => format!("SensorView Sensors Status ({l:.1}%)"),
         None => "SensorView Sensors Status".to_string(),
@@ -137,7 +138,7 @@ pub fn show(ui: &mut egui::Ui, s: &Shared) {
                         if let Ok(mut slot) = s.logger.lock() {
                             if slot.is_some() {
                                 *slot = None; // stop
-                            } else if let Ok(l) = crate::logging::CsvLogger::start(&tree) {
+                            } else if let Ok(l) = crate::logging::CsvLogger::start(tree) {
                                 *slot = Some(l);
                             }
                         }
@@ -146,9 +147,9 @@ pub fn show(ui: &mut egui::Ui, s: &Shared) {
                         .button(RichText::new("Reset Min/Max").size(11.0))
                         .clicked()
                     {
-                        if let Ok(mut m) = s.monitor.lock() {
-                            m.reset_min_max();
-                        }
+                        // Sent to the poll thread rather than applied under a
+                        // shared lock — the UI never blocks on the poller.
+                        s.command(crate::poll::Command::ResetMinMax);
                     }
                 });
             });
@@ -158,7 +159,7 @@ pub fn show(ui: &mut egui::Ui, s: &Shared) {
     egui::CentralPanel::default()
         .frame(egui::Frame::new().fill(pal.bg))
         .show(ui, |ui| {
-            let items = build_items(&tree, s);
+            let items = build_items(tree, s);
             flow_columns(ui, &items, s, &pal);
         });
 }
@@ -307,7 +308,7 @@ fn draw_column(ui: &mut egui::Ui, items: &[Item], col_w: f32, s: &Shared, pal: &
 fn draw_row(ui: &mut egui::Ui, sensor: &Sensor, col_w: f32, stripe: usize, s: &Shared, pal: &Palette) {
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(col_w, ROW_H), Sense::click());
     let p = ui.painter();
-    let bg = if stripe % 2 == 0 { pal.row_even } else { pal.row_odd };
+    let bg = if stripe.is_multiple_of(2) { pal.row_even } else { pal.row_odd };
     p.rect_filled(rect, 0.0, bg);
 
     // Type icon.
