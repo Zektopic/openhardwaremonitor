@@ -884,7 +884,23 @@ namespace OxyPlot.WindowsForms
             {
                 // todo: can't get the following solution to work
                 // http://stackoverflow.com/questions/5707990/requested-clipboard-operation-did-not-succeed
-                Clipboard.SetText(text);
+                for (int i = 0; i < 10; i++)
+                {
+                    try
+                    {
+                        Clipboard.SetText(text);
+                        return;
+                    }
+                    catch (ExternalException)
+                    {
+                        if (i == 9)
+                        {
+                            throw;
+                        }
+
+                        System.Threading.Thread.Sleep(50);
+                    }
+                }
             }
             catch (ExternalException ee)
             {
