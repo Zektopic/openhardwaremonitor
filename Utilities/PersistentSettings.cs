@@ -24,6 +24,7 @@ namespace OpenHardwareMonitor {
 
     public void Load(string fileName) {
       XmlDocument doc = new XmlDocument();
+      doc.XmlResolver = null;
       try {
         doc.Load(fileName);
       } catch {
@@ -66,6 +67,7 @@ namespace OpenHardwareMonitor {
     public void Save(string fileName) {
 
       XmlDocument doc = new XmlDocument();
+      doc.XmlResolver = null;
       doc.AppendChild(doc.CreateXmlDeclaration("1.0", "utf-8", null));
       XmlElement configuration = doc.CreateElement("configuration");
       doc.AppendChild(configuration);
