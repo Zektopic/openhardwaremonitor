@@ -192,7 +192,7 @@ fn toolbar(
                 {
                     state.search_hex = !state.search_hex;
                 }
-                if ui.button(RichText::new("▶").size(11.0)).on_hover_text("Find next").clicked() {
+                if ui.button(RichText::new("Next").size(11.0)).on_hover_text("Find next").clicked() {
                     find_next(state, &blobs[state.blob]);
                 }
 
@@ -212,7 +212,7 @@ fn toolbar(
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
-                        .button(RichText::new("💾 Export").size(11.0))
+                        .button(RichText::new("Export").size(11.0))
                         .on_hover_text("Write this dump to a .bin and .txt beside the reports")
                         .clicked()
                     {
@@ -222,7 +222,7 @@ fn toolbar(
                         };
                     }
                     if ui
-                        .button(RichText::new("✕").color(pal.accent).size(12.0))
+                        .button(RichText::new("Close").color(pal.accent).size(11.0))
                         .on_hover_text("Close")
                         .clicked()
                     {
