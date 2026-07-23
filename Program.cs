@@ -101,7 +101,8 @@ namespace OpenHardwareMonitor {
     {
       try {
         ReportException(e.Exception);
-      } catch {
+      } catch (Exception ex) {
+        MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
       } finally {
         Application.Exit();
       }
@@ -114,7 +115,8 @@ namespace OpenHardwareMonitor {
         Exception e = args.ExceptionObject as Exception;
         if (e != null)
           ReportException(e);
-      } catch {
+      } catch (Exception ex) {
+        MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
       } finally {
         Environment.Exit(0);
       }
