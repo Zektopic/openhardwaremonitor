@@ -63,7 +63,21 @@ strip = true
 product-name = "SensorView"
 identifier = "com.sensorview.desktop"
 category = "Utility"
-icons = ["assets/icon.png", "assets/icon.ico", "assets/32x32.png"]
+# Every PNG here is converted into one .icns entry for the macOS .app bundle,
+# via `IconType::from_pixel_size_and_density(w, h, density)`. Density is 2 only
+# when the filename contains "@2x". There is no 1024×1024 entry at 1x density —
+# 1024 px is only legal as 512@2x — so a plain 1024 `icon.png` made the macOS
+# job fail with "No matching IconType". Sizes here are checked by
+# `icon_assets_map_to_valid_icns_types` so that can't regress unnoticed on a
+# platform we don't build locally.
+icons = [
+    "assets/32x32.png",
+    "assets/128x128.png",
+    "assets/256x256.png",
+    "assets/512x512.png",
+    "assets/icon@2x.png",
+    "assets/icon.ico",
+]
 # Ship the LibreHardwareMonitor sidecar next to the app. `resources` is a
 # top-level field; the glob resolves to nothing on non-Windows runners (where
 # the .NET win-x64 sidecar isn't published), so it's harmless there.

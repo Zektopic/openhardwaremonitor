@@ -297,3 +297,103 @@ fn load_icon() -> egui::IconData {
     let (width, height) = img.dimensions();
     egui::IconData { rgba: img.into_raw(), width, height }
 }
+
+#[cfg(test)]
+mod packaging_assets {
+    //! Guards the icon set that `cargo packager` turns into the macOS `.icns`.
+    //!
+    //! Every icon listed under `[package.metadata.packager] icons` is opened and
+    //! passed to `IconType::from_pixel_size_and_density(w, h, density)`; a `None`
+    //! aborts the whole macOS job with "No matching IconType". Density is 2 only
+    //! when the filename contains `@2x`.
+    //!
+    //! That bit us with a plain 1024×1024 `icon.png`: 1024 px exists **only** as
+    //! `512@2x` (OSType `ic10`), so at density 1 it has no type. The failure is
+    //! invisible on Windows and Linux, which is why it survived several releases
+    //! — hence a check that runs on every platform.
+
+    use std::path::{Path, PathBuf};
+
+    /// Pixel sizes ICNS accepts at 1× — OSTypes icp4/icp5/ih32/icp6/ic07/ic08/ic09.
+    const SIZES_1X: &[u32] = &[16, 32, 48, 64, 128, 256, 512];
+    /// Pixel sizes ICNS accepts at 2× — ic11 (16@2x), ic12 (32@2x), ic13
+    /// (128@2x), ic14 (256@2x), ic10 (512@2x). Note there is no 128 px @2x.
+    const SIZES_2X: &[u32] = &[32, 64, 256, 512, 1024];
+
+    fn assets_dir() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("assets")
+    }
+
+    /// Width/height straight out of the PNG IHDR — no image decode needed.
+    fn png_size(path: &Path) -> (u32, u32) {
+        let b = std::fs::read(path).expect("read png");
+        assert_eq!(&b[1..4], b"PNG", "{} is not a PNG", path.display());
+        let w = u32::from_be_bytes([b[16], b[17], b[18], b[19]]);
+        let h = u32::from_be_bytes([b[20], b[21], b[22], b[23]]);
+        (w, h)
+    }
+
+    /// Largest frame in an ICO — what `image::open` hands the packager.
+    fn ico_largest(path: &Path) -> u32 {
+        let b = std::fs::read(path).expect("read ico");
+        let count = u16::from_le_bytes([b[4], b[5]]) as usize;
+        (0..count)
+            .map(|i| match b[6 + i * 16] {
+                0 => 256, // 0 encodes 256 in the ICO directory
+                w => w as u32,
+            })
+            .max()
+            .expect("ico has at least one frame")
+    }
+
+    fn accepted(size: u32, retina: bool) -> bool {
+        if retina { SIZES_2X } else { SIZES_1X }.contains(&size)
+    }
+
+    #[test]
+    fn icon_assets_map_to_valid_icns_types() {
+        let dir = assets_dir();
+        let mut checked = 0;
+        for entry in std::fs::read_dir(&dir).expect("assets dir") {
+            let path = entry.expect("dir entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("png") {
+                continue;
+            }
+            let name = path.file_name().unwrap().to_string_lossy().to_string();
+            let (w, h) = png_size(&path);
+            assert_eq!(w, h, "{name} is {w}×{h}; icons must be square");
+
+            let retina = name.contains("@2x");
+            assert!(
+                accepted(w, retina),
+                "{name} is {w}px at {}× — no ICNS type matches, so `cargo packager` \
+                 will fail the macOS build with \"No matching IconType\". Valid \
+                 sizes: 1× {SIZES_1X:?}, 2× {SIZES_2X:?}.",
+                if retina { 2 } else { 1 }
+            );
+            checked += 1;
+        }
+        assert!(checked >= 4, "expected the full icon family, found {checked} PNGs");
+    }
+
+    #[test]
+    fn ico_largest_frame_is_a_valid_icns_size() {
+        // The .ico is in the same `icons` list, so it goes through the identical
+        // conversion — a 1024px frame would fail exactly like the PNG did.
+        let size = ico_largest(&assets_dir().join("icon.ico"));
+        assert!(
+            accepted(size, false),
+            "icon.ico's largest frame is {size}px, which has no 1× ICNS type"
+        );
+    }
+
+    #[test]
+    fn the_1024_master_is_marked_retina() {
+        // The specific regression: 1024px is legal only as 512@2x.
+        let path = assets_dir().join("icon@2x.png");
+        assert!(path.is_file(), "the 1024px master must keep its @2x name");
+        assert_eq!(png_size(&path), (1024, 1024));
+        assert!(accepted(1024, true), "1024px is valid at 2×");
+        assert!(!accepted(1024, false), "1024px must NOT be accepted at 1×");
+    }
+}
