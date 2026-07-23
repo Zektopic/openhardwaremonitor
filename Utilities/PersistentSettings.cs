@@ -24,6 +24,7 @@ namespace OpenHardwareMonitor {
 
     public void Load(string fileName) {
       XmlDocument doc = new XmlDocument();
+      doc.XmlResolver = null;
       try {
         doc.Load(fileName);
       } catch {
