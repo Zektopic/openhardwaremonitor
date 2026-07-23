@@ -1,0 +1,8 @@
+/app/obj/Debug/.NETFramework,Version=v4.5.AssemblyAttribute.cs
+/app/bin/Debug/nunit.framework.dll
+/app/bin/Debug/OpenHardwareMonitorLib.dll
+/app/bin/Debug/OpenHardwareMonitorLib.dll.mdb
+/app/bin/Debug/OpenHardwareMonitorLib.Tests.dll.mdb
+/app/bin/Debug/OpenHardwareMonitorLib.Tests.dll
+/app/obj/Debug/OpenHardwareMonitorLib.Tests.dll
+/app/obj/Debug/OpenHardwareMonitorLib.Tests.dll.mdb

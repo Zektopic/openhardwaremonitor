@@ -9,10 +9,13 @@
 */
 
 namespace OpenHardwareMonitor.Hardware.Mainboard {
-  internal class Identification {
+  public class Identification {
 
     public static Manufacturer GetManufacturer(string name) {
       switch (name) {
+        case "ABIT":
+        case "abit":
+          return Manufacturer.Abit;
         case "acer":
         case "Acer":
         case "ACER":

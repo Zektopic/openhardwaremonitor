@@ -10,7 +10,7 @@
 
 namespace OpenHardwareMonitor.Hardware.Mainboard {
 
-  internal enum Manufacturer {
+  public enum Manufacturer {
     Abit,
     Acer,
     Alienware,
