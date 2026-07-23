@@ -113,6 +113,9 @@ pub struct TelemetryStore {
     frame: ArcSwap<TelemetryFrame>,
     /// The current frame, pre-serialized. Shared by every reader so the cost is
     /// paid once per tick regardless of how many clients are connected.
+    /// Exists only for the web tier — without it there is nothing to serialize
+    /// *for*, so both the field and the work disappear with the feature.
+    #[cfg(feature = "web")]
     json: ArcSwap<String>,
     /// Per-sensor sample rings. Leaf lock — see the deadlock argument above.
     history: RwLock<HashMap<String, VecDeque<f32>>>,
@@ -128,6 +131,7 @@ impl TelemetryStore {
         let _ = channel_capacity; // no broadcast channel without the web tier
         Self {
             frame: ArcSwap::from_pointee(TelemetryFrame::default()),
+            #[cfg(feature = "web")]
             json: ArcSwap::from_pointee(String::from("{}")),
             history: RwLock::new(HashMap::new()),
             #[cfg(feature = "web")]
@@ -143,21 +147,20 @@ impl TelemetryStore {
     pub fn publish(&self, frame: TelemetryFrame) {
         self.record_history(&frame.tree);
 
-        let json = Arc::new(serde_json::to_string(&frame).unwrap_or_else(|e| {
-            // Serialization of our own owned types should not fail; if it ever
-            // does, keep the app running and make the failure visible.
-            format!(r#"{{"error":"telemetry serialization failed: {e}"}}"#)
-        }));
-
-        self.frame.store(Arc::new(frame));
-        self.json.store(json.clone());
-
         #[cfg(feature = "web")]
         {
+            let json = Arc::new(serde_json::to_string(&frame).unwrap_or_else(|e| {
+                // Serialization of our own owned types should not fail; if it
+                // ever does, keep the app running and make the failure visible.
+                format!(r#"{{"error":"telemetry serialization failed: {e}"}}"#)
+            }));
+            self.json.store(json.clone());
             // Err means "no subscribers", which is the normal case with no
             // browser attached. Never an error condition for the poller.
             let _ = self.tx.send(json);
         }
+
+        self.frame.store(Arc::new(frame));
     }
 
     /// The latest frame. Lock-free; safe to call every UI frame.

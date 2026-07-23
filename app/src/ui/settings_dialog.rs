@@ -23,7 +23,7 @@ pub fn show(ui: &mut egui::Ui, s: &Shared) {
     let pal = s.palette();
 
     let tab_id = Id::new("settings_tab");
-    let mut tab: Tab = ui.ctx().data_mut(|d| *d.get_temp_mut_or(tab_id, Tab::General));
+    let mut tab: Tab = ui.ctx().data_mut(|d| *d.get_temp_mut_or(tab_id, default_tab()));
 
     // ---- Bottom OK / Cancel ---------------------------------------------
     egui::Panel::bottom("settings_buttons")
@@ -86,6 +86,20 @@ pub fn show(ui: &mut egui::Ui, s: &Shared) {
                 Tab::License => stub_tab(ui, &pal, "SensorView is open source — no license management needed."),
             }
         });
+}
+
+/// Which tab the dialog opens on. `SENSORVIEW_SETTINGS_TAB` is a dev/testing
+/// affordance (matching `SENSORVIEW_SHOW_SETTINGS`) so a tab that normally
+/// needs a click can be rendered from a script; unset, it is always General.
+fn default_tab() -> Tab {
+    match std::env::var("SENSORVIEW_SETTINGS_TAB").as_deref() {
+        Ok("safety") => Tab::Safety,
+        Ok("smbus") => Tab::Smbus,
+        Ok("driver") => Tab::Driver,
+        Ok("remote") => Tab::Remote,
+        Ok("license") => Tab::License,
+        _ => Tab::General,
+    }
 }
 
 fn general_tab(ui: &mut egui::Ui, s: &Shared, pal: &Palette) {

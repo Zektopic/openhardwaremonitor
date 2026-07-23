@@ -153,8 +153,36 @@ fn main() -> eframe::Result {
         .windows
         .sensors
         .store(app_settings.show_sensors_on_startup, Ordering::Relaxed);
+    // Dev/testing affordances (env-gated, inert in normal use). They exist so
+    // the windows that only open on user interaction — Settings, Graph — can be
+    // smoke-tested without driving the mouse.
     if std::env::var("SENSORVIEW_SHOW_SETTINGS").is_ok() {
         shared.windows.settings.store(true, Ordering::Relaxed);
+    }
+    let open_graph = std::env::var("SENSORVIEW_OPEN_GRAPH").ok();
+    let start_logging = std::env::var("SENSORVIEW_START_LOGGING").is_ok();
+    if open_graph.is_some() || start_logging {
+        // Both need real sensors, which only exist once the poller has ticked.
+        let frame = wait_for_first_frame(&store, Duration::from_secs(20));
+        if let Some(needle) = &open_graph {
+            if let Some(id) = first_sensor_matching(&frame.tree, needle) {
+                shared.windows.sensors.store(true, Ordering::Relaxed);
+                if let Ok(mut g) = shared.graphs.write() {
+                    g.insert(id);
+                }
+            } else {
+                eprintln!("SENSORVIEW_OPEN_GRAPH: no sensor name contains {needle:?}");
+            }
+        }
+        if start_logging {
+            match logging::CsvLogger::start(&frame.tree) {
+                Ok(l) => {
+                    *shared.logger.lock().expect("fresh logger slot") = Some(l);
+                    shared.windows.sensors.store(true, Ordering::Relaxed);
+                }
+                Err(e) => eprintln!("SENSORVIEW_START_LOGGING: {e}"),
+            }
+        }
     }
 
     let options = eframe::NativeOptions {
@@ -220,6 +248,41 @@ impl eframe::App for SensorViewApp {
         self.web.stop();
         self.poller.stop();
     }
+}
+
+/// Block until the poller publishes its first frame, or `timeout` elapses.
+/// Only used by the env-gated dev hooks, which need real sensor identifiers.
+fn wait_for_first_frame(
+    store: &Arc<TelemetryStore>,
+    timeout: Duration,
+) -> Arc<state::TelemetryFrame> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let frame = store.load();
+        if frame.seq > 0 || Instant::now() >= deadline {
+            return frame;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// First sensor identifier whose name contains `needle` (case-insensitive).
+fn first_sensor_matching(tree: &[model::Hardware], needle: &str) -> Option<String> {
+    let needle = needle.to_lowercase();
+    fn walk(tree: &[model::Hardware], needle: &str) -> Option<String> {
+        for hw in tree {
+            for s in &hw.sensors {
+                if s.name.to_lowercase().contains(needle) {
+                    return Some(s.identifier.clone());
+                }
+            }
+            if let Some(found) = walk(&hw.sub_hardware, needle) {
+                return Some(found);
+            }
+        }
+        None
+    }
+    walk(tree, &needle)
 }
 
 /// Window icon (32×32 PNG baked into the binary).
