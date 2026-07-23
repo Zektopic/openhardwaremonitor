@@ -1,7 +1,16 @@
 *.user
 *.suo
-Bin/
-Obj/
 .vs/
+
+# MSBuild output. Both cases: the C# projects emit lowercase bin/ and obj/,
+# but older configs used Bin/ and Obj/, and Git path matching is case-sensitive.
+[Bb]in/
+[Oo]bj/
 OpenHardwareMonitor.Tests/bin/
 OpenHardwareMonitor.Tests/obj/
+
+# NUnit run output.
+TestResult.xml
+
+# Rust build output for the SensorView app.
+app/target/

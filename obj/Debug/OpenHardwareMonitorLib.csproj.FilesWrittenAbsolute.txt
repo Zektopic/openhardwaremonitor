@@ -1,7 +1,0 @@
-/app/obj/Debug/.NETFramework,Version=v4.5.AssemblyAttribute.cs
-/app/obj/Debug/OpenHardwareMonitor.Hardware.WinRing0.sys
-/app/obj/Debug/OpenHardwareMonitor.Hardware.WinRing0x64.sys
-/app/Bin/Debug/OpenHardwareMonitorLib.dll.mdb
-/app/Bin/Debug/OpenHardwareMonitorLib.dll
-/app/obj/Debug/OpenHardwareMonitorLib.dll
-/app/obj/Debug/OpenHardwareMonitorLib.dll.mdb
