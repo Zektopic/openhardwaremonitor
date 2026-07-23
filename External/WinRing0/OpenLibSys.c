@@ -8,8 +8,10 @@
 //-----------------------------------------------------------------------------
 
 #include <ntddk.h>
+#include <wdmsec.h>
 #include <stddef.h>
 #include "OpenLibSys.h"
+#include <devguid.h>
 
 //-----------------------------------------------------------------------------
 //
@@ -48,13 +50,15 @@ Return Value:
 
 	RtlInitUnicodeString(&ntDeviceName, NT_DEVICE_NAME);
 
-	status = IoCreateDevice(
+	status = IoCreateDeviceSecure(
 		DriverObject,					// Our Driver Object
 		0,								// We don't use a device extension
 		&ntDeviceName,					// Device name 
 		OLS_TYPE,						// Device type
 		FILE_DEVICE_SECURE_OPEN,		// Device characteristics
 		FALSE,							// Not an exclusive device
+		&SDDL_DEVOBJ_SYS_ALL_ADM_ALL,	// SDDL string
+		(LPCGUID)&GUID_DEVCLASS_UNKNOWN,	// Device class GUID
 		&deviceObject );				// Returned ptr to Device Object
 
 	if(!NT_SUCCESS(status))
