@@ -55,6 +55,9 @@ pub fn show(ui: &mut egui::Ui, s: &Shared, state: &mut MainWindowState) {
                 if tool_button(ui, "▤", "Memory", &pal) {
                     state.selected = Selection::Memory;
                 }
+                if tool_button(ui, "0x", "Hex", &pal) {
+                    WindowFlags::open(&s.windows.hex);
+                }
                 if tool_button(ui, "ℹ", "About", &pal) {
                     state.show_about = true;
                 }

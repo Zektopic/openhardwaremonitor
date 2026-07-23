@@ -159,6 +159,9 @@ fn main() -> eframe::Result {
     if std::env::var("SENSORVIEW_SHOW_SETTINGS").is_ok() {
         shared.windows.settings.store(true, Ordering::Relaxed);
     }
+    if std::env::var("SENSORVIEW_SHOW_HEX").is_ok() {
+        shared.windows.hex.store(true, Ordering::Relaxed);
+    }
     let open_graph = std::env::var("SENSORVIEW_OPEN_GRAPH").ok();
     let start_logging = std::env::var("SENSORVIEW_START_LOGGING").is_ok();
     if open_graph.is_some() || start_logging {

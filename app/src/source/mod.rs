@@ -9,6 +9,7 @@
 //! - `native` — pure-Rust engine (feature/native-*).
 
 pub mod demo;
+pub mod firmware;
 #[cfg(windows)]
 pub mod lhm_bridge;
 
