@@ -101,7 +101,6 @@ namespace OpenHardwareMonitor {
     {
       try {
         ReportException(e.Exception);
-      } catch {
       } finally {
         Application.Exit();
       }
@@ -114,7 +113,6 @@ namespace OpenHardwareMonitor {
         Exception e = args.ExceptionObject as Exception;
         if (e != null)
           ReportException(e);
-      } catch {
       } finally {
         Environment.Exit(0);
       }
