@@ -3,3 +3,5 @@
 Bin/
 Obj/
 .vs/
+OpenHardwareMonitor.Tests/bin/
+OpenHardwareMonitor.Tests/obj/
